@@ -20,7 +20,7 @@ router.get('/', auth, async (req, res) => {
 });
 
 // GET /api/tales/:id
-// Returns a single tale with full text.
+// Returns a single tale with pages array and totalPages.
 router.get('/:id', auth, async (req, res) => {
   try {
     const tale = await talesService.getTaleById(req.params.id);
@@ -36,8 +36,8 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// POST /api/tales/:id/narrate
-// Generate narrated audio of a tale using the user's cloned voice.
+// POST /api/tales/:id/narrate?page=0
+// Generate narrated audio for a single page of a tale.
 router.post('/:id/narrate', auth, async (req, res) => {
   try {
     const tale = await talesService.getTaleById(req.params.id);
@@ -45,17 +45,24 @@ router.post('/:id/narrate', auth, async (req, res) => {
       return res.status(404).json({ error: 'Tale not found' });
     }
 
+    const page = parseInt(req.query.page, 10);
+    if (isNaN(page) || page < 0 || page >= tale.totalPages) {
+      return res.status(400).json({
+        error: `page parameter is required (0..${tale.totalPages - 1})`,
+      });
+    }
+
     const user = await usersService.getUser(req.userId);
     if (!user || !user.voice_id) {
       return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
     }
 
-    const audioBuffer = await textToSpeech(user.voice_id, tale.text);
+    const audioBuffer = await textToSpeech(user.voice_id, tale.pages[page]);
 
     res.set({
       'Content-Type': 'audio/mpeg',
       'Content-Length': audioBuffer.length,
-      'Content-Disposition': `attachment; filename="${tale.id}.mp3"`,
+      'Content-Disposition': `attachment; filename="${tale.id}-${page}.mp3"`,
     });
     res.send(audioBuffer);
   } catch (err) {

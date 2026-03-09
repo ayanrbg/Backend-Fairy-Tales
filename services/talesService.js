@@ -17,10 +17,15 @@ async function getTalesList(lang) {
 
 async function getTaleById(id) {
   const { rows } = await pool.query(
-    'SELECT slug AS id, title, lang, text FROM tales WHERE slug = $1',
+    'SELECT slug AS id, title, lang, pages FROM tales WHERE slug = $1',
     [id]
   );
-  return rows[0] || null;
+
+  if (!rows[0]) return null;
+
+  const tale = rows[0];
+  tale.totalPages = tale.pages.length;
+  return tale;
 }
 
 module.exports = { getTalesList, getTaleById };

@@ -28,11 +28,11 @@ async function seed() {
     const tale = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
     await pool.query(
-      `INSERT INTO tales (slug, title, lang, text)
+      `INSERT INTO tales (slug, title, lang, pages)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (slug) DO UPDATE
-       SET title = EXCLUDED.title, lang = EXCLUDED.lang, text = EXCLUDED.text`,
-      [tale.id, tale.title, tale.lang, tale.text]
+       SET title = EXCLUDED.title, lang = EXCLUDED.lang, pages = EXCLUDED.pages`,
+      [tale.id, tale.title, tale.lang, JSON.stringify(tale.pages)]
     );
 
     console.log(`  Seeded: ${tale.id} (${tale.lang})`);

@@ -18,7 +18,7 @@ function getTalesList(lang) {
 }
 
 /**
- * Get a single tale by ID (with full text).
+ * Get a single tale by ID (with pages array).
  */
 function getTaleById(id) {
   const index = JSON.parse(fs.readFileSync(INDEX_PATH, 'utf-8'));
@@ -28,6 +28,7 @@ function getTaleById(id) {
 
   const filePath = path.join(TALES_DIR, entry.file);
   const tale = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  tale.totalPages = tale.pages.length;
 
   return tale;
 }

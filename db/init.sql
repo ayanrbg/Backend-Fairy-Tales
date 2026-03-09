@@ -11,6 +11,6 @@ CREATE TABLE IF NOT EXISTS tales (
     slug          VARCHAR(255) UNIQUE NOT NULL,
     title         VARCHAR(500) NOT NULL,
     lang          VARCHAR(10) NOT NULL,
-    text          TEXT NOT NULL,
+    pages         JSONB NOT NULL DEFAULT '[]',
     created_at    TIMESTAMP DEFAULT NOW()
 );
