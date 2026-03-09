@@ -1,11 +1,16 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 
 const auth = require('../middleware/auth');
 const { textToSpeech } = require('../services/elevenlabs');
 const talesService = require('../services/talesService');
 const usersService = require('../services/usersService');
+const narrationService = require('../services/narrationService');
 
 const router = express.Router();
+
+const STORAGE_DIR = path.join(__dirname, '..', 'storage');
 
 // GET /api/tales?lang=ru
 // Returns list of available tales.
@@ -72,6 +77,132 @@ router.post('/:id/narrate', auth, async (req, res) => {
       error: 'Failed to narrate tale',
       details: err.response?.data || err.message,
     });
+  }
+});
+
+// POST /api/tales/:id/personalize
+// Personalize tale text with child's name and gender.
+router.post('/:id/personalize', auth, async (req, res) => {
+  try {
+    const tale = await talesService.getTaleById(req.params.id);
+    if (!tale) {
+      return res.status(404).json({ error: 'Tale not found' });
+    }
+
+    const { name, gender } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const pages = tale.pages.map((text) => {
+      let result = text;
+      // Replace placeholder patterns for child name
+      result = result.replace(/\{childName\}/g, name);
+      result = result.replace(/\{ChildName\}/g, name);
+      // Replace gender-conditional patterns: {m:мальчик|f:девочка}
+      result = result.replace(/\{m:([^|]+)\|f:([^}]+)\}/g, (_, m, f) => {
+        return gender === 'female' ? f : m;
+      });
+      return result;
+    });
+
+    res.json({ pages });
+  } catch (err) {
+    console.error('Personalize error:', err.message);
+    res.status(500).json({ error: 'Failed to personalize tale' });
+  }
+});
+
+// POST /api/tales/:id/narrate-all
+// Start async full book narration with cloned voice.
+router.post('/:id/narrate-all', auth, async (req, res) => {
+  try {
+    const tale = await talesService.getTaleById(req.params.id);
+    if (!tale) {
+      return res.status(404).json({ error: 'Tale not found' });
+    }
+
+    const user = await usersService.getUser(req.userId);
+    if (!user || !user.voice_id) {
+      return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
+    }
+
+    const job = await narrationService.createJob(req.userId, tale.id, tale.totalPages);
+
+    // Run narration in background
+    const jobId = job.job_id;
+    const voiceId = user.voice_id;
+    const taleId = tale.id;
+
+    (async () => {
+      const jobDir = path.join(STORAGE_DIR, req.userId, taleId);
+      fs.mkdirSync(jobDir, { recursive: true });
+
+      for (let i = 0; i < tale.totalPages; i++) {
+        try {
+          const audioBuffer = await textToSpeech(voiceId, tale.pages[i]);
+          fs.writeFileSync(path.join(jobDir, `${i}.mp3`), audioBuffer);
+          await narrationService.updateJobProgress(jobId, i + 1);
+        } catch (err) {
+          console.error(`Narrate-all page ${i} error:`, err.message);
+          await narrationService.failJob(jobId);
+          return;
+        }
+      }
+      await narrationService.completeJob(jobId);
+    })();
+
+    res.json({ jobId, status: 'processing' });
+  } catch (err) {
+    console.error('Narrate-all error:', err.message);
+    res.status(500).json({ error: 'Failed to start narration' });
+  }
+});
+
+// GET /api/tales/:id/narration-status
+// Poll for narration progress.
+router.get('/:id/narration-status', auth, async (req, res) => {
+  try {
+    const job = await narrationService.getJob(req.userId, req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'No narration job found for this tale' });
+    }
+    res.json({
+      status: job.status,
+      pagesReady: job.pages_ready,
+      totalPages: job.total_pages,
+    });
+  } catch (err) {
+    console.error('Narration status error:', err.message);
+    res.status(500).json({ error: 'Failed to get narration status' });
+  }
+});
+
+// GET /api/tales/:id/narration/:page
+// Download narrated page audio.
+router.get('/:id/narration/:page', auth, async (req, res) => {
+  try {
+    const page = parseInt(req.params.page, 10);
+    if (isNaN(page) || page < 0) {
+      return res.status(400).json({ error: 'Invalid page number' });
+    }
+
+    const filePath = path.join(STORAGE_DIR, req.userId, req.params.id, `${page}.mp3`);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Narrated page not found. Check narration-status first.' });
+    }
+
+    const audioBuffer = fs.readFileSync(filePath);
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': audioBuffer.length,
+      'Content-Disposition': `attachment; filename="${req.params.id}-${page}.mp3"`,
+    });
+    res.send(audioBuffer);
+  } catch (err) {
+    console.error('Narration download error:', err.message);
+    res.status(500).json({ error: 'Failed to download narrated page' });
   }
 });
 

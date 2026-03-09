@@ -206,6 +206,330 @@ Content-Disposition: attachment; filename="kolobok-0.mp3"
 
 ---
 
+## 8. Регистрация — создать профиль и получить JWT
+
+**Запрос:**
+```
+POST /api/auth/register
+Content-Type: application/json
+
+{
+  "userId": "user_123",
+  "name": "Маша",
+  "gender": "female",
+  "lang": "ru"
+}
+```
+
+**Ответ (200):**
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "profile": {
+    "user_id": "user_123",
+    "name": "Маша",
+    "gender": "female",
+    "lang": "ru"
+  }
+}
+```
+
+**Ошибка (400):**
+```json
+{ "error": "userId is required" }
+```
+
+> При повторном вызове с тем же `userId` профиль обновляется (upsert).
+
+---
+
+## 9. Получить профиль пользователя
+
+**Запрос:**
+```
+GET /api/user/profile
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```json
+{
+  "name": "Маша",
+  "gender": "female",
+  "lang": "ru"
+}
+```
+
+**Ошибка (404):**
+```json
+{ "error": "Profile not found. Register first." }
+```
+
+---
+
+## 10. Обновить профиль пользователя
+
+Можно передать любое сочетание полей — обновятся только переданные.
+
+**Запрос:**
+```
+PUT /api/user/profile
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Миша",
+  "gender": "male"
+}
+```
+
+**Ответ (200):**
+```json
+{
+  "profile": {
+    "name": "Миша",
+    "gender": "male",
+    "lang": "ru"
+  }
+}
+```
+
+---
+
+## 11. Персонализация сказки
+
+Подставляет имя ребёнка и корректирует род в тексте сказки. Возвращает массив страниц с подставленными значениями.
+
+**Запрос:**
+```
+POST /api/tales/kolobok/personalize
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Маша",
+  "gender": "female"
+}
+```
+
+**Ответ (200):**
+```json
+{
+  "pages": [
+    "Жили-были старик со старухой. А у них жила внучка по имени Маша. Вот и просит старик: «Испеки мне, старая, колобок».",
+    "Старуха наскребла муки, замесила тесто на сметане, скатала колобок, изжарила в масле и положила на окошко остудить. Маша сидела рядом и наблюдала.",
+    "..."
+  ]
+}
+```
+
+**Шаблоны в текстах сказок:**
+| Шаблон | Описание | Пример |
+|--------|----------|--------|
+| `{childName}` | Имя ребёнка | `Маша` |
+| `{m:слово\|f:слово}` | Выбор по роду | `{m:побежал\|f:побежала}` → `побежала` |
+
+**Ошибки:**
+```json
+// 400 — имя не указано
+{ "error": "name is required" }
+
+// 404 — сказка не найдена
+{ "error": "Tale not found" }
+```
+
+---
+
+## 12. Озвучить всю книгу (async)
+
+Запускает фоновую озвучку всех страниц сказки голосом пользователя. Озвучка идёт постранично, прогресс можно отслеживать через `narration-status`.
+
+**Запрос:**
+```
+POST /api/tales/kolobok/narrate-all
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```json
+{
+  "jobId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "status": "processing"
+}
+```
+
+**Ошибки:**
+```json
+// 400 — голос не клонирован
+{ "error": "No cloned voice. Clone your voice first via POST /api/voice/clone" }
+
+// 404 — сказка не найдена
+{ "error": "Tale not found" }
+```
+
+---
+
+## 13. Статус озвучки книги
+
+Опрашивается клиентом (polling) до тех пор, пока `status` не станет `"done"` или `"error"`.
+
+**Запрос:**
+```
+GET /api/tales/kolobok/narration-status
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```json
+{
+  "status": "processing",
+  "pagesReady": 3,
+  "totalPages": 6
+}
+```
+
+**Возможные значения `status`:** `processing`, `done`, `error`
+
+**Ошибка (404):**
+```json
+{ "error": "No narration job found for this tale" }
+```
+
+---
+
+## 14. Скачать озвученную страницу
+
+Возвращает MP3-файл для конкретной страницы. Доступен только после того, как страница озвучена (проверяйте `pagesReady` в `narration-status`).
+
+**Запрос:**
+```
+GET /api/tales/kolobok/narration/0
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```
+Content-Type: audio/mpeg
+Content-Disposition: attachment; filename="kolobok-0.mp3"
+
+<бинарные данные mp3>
+```
+
+**Ошибки:**
+```json
+// 400 — невалидный номер страницы
+{ "error": "Invalid page number" }
+
+// 404 — страница ещё не озвучена
+{ "error": "Narrated page not found. Check narration-status first." }
+```
+
+---
+
+## 15. Список черновиков
+
+**Запрос:**
+```
+GET /api/voice/drafts
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```json
+[
+  {
+    "id": 1,
+    "narratorName": "Папа",
+    "taleId": "kolobok",
+    "lastPage": 3,
+    "createdAt": "2026-03-09T12:00:00.000Z"
+  }
+]
+```
+
+---
+
+## 16. Создать черновик
+
+**Запрос:**
+```
+POST /api/voice/drafts
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "narratorName": "Папа",
+  "taleId": "kolobok"
+}
+```
+
+**Ответ (200):**
+```json
+{
+  "draft": {
+    "id": 1,
+    "narratorName": "Папа",
+    "taleId": "kolobok",
+    "lastPage": 0,
+    "voiceId": null,
+    "createdAt": "2026-03-09T12:00:00.000Z"
+  }
+}
+```
+
+**Ошибка (400):**
+```json
+{ "error": "narratorName and taleId are required" }
+```
+
+---
+
+## 17. Получить черновик
+
+**Запрос:**
+```
+GET /api/voice/drafts/1
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```json
+{
+  "id": 1,
+  "narratorName": "Папа",
+  "taleId": "kolobok",
+  "lastPage": 3,
+  "voiceId": "abc123def456"
+}
+```
+
+**Ошибка (404):**
+```json
+{ "error": "Draft not found" }
+```
+
+---
+
+## 18. Удалить черновик
+
+**Запрос:**
+```
+DELETE /api/voice/drafts/1
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```json
+{ "status": "deleted" }
+```
+
+**Ошибка (404):**
+```json
+{ "error": "Draft not found" }
+```
+
+---
+
 ## Формат файла сказки
 
 Тексты хранятся в `data/tales/{lang}/{id}.json`. Поле `pages` — массив строк, каждая строка = один экран/слайд.
@@ -216,13 +540,17 @@ Content-Disposition: attachment; filename="kolobok-0.mp3"
   "title": "Колобок",
   "lang": "ru",
   "pages": [
-    "Жили-были старик со старухой...",
+    "Жили-были старик со старухой. А у них {m:жил внук|f:жила внучка} по имени {childName}...",
     "Старуха наскребла муки...",
     "Колобок полежал-полежал...",
     "Катится колобок по дороге..."
   ]
 }
 ```
+
+**Шаблоны персонализации:**
+- `{childName}` — заменяется на имя ребёнка при вызове `/personalize`
+- `{m:текст|f:текст}` — выбирается вариант по полу (`male` / `female`)
 
 > Разбивка на страницы делается **вручную** при добавлении сказки — так каждый разрыв будет по смыслу, а не механически по точкам.
 
@@ -231,12 +559,19 @@ Content-Disposition: attachment; filename="kolobok-0.mp3"
 ## Типичный флоу тестирования
 
 ```
-1. GET  /health                                → проверить что сервер жив
-2. POST /api/auth/login                        → получить токен
-3. POST /api/voice/clone                       → загрузить голос (mp3)
-4. GET  /api/tales?lang=ru                     → посмотреть список сказок
-5. GET  /api/tales/kolobok                     → получить сказку (pages + totalPages)
-6. POST /api/tales/kolobok/narrate?page=0      → озвучить первую страницу
-7. POST /api/tales/kolobok/narrate?page=1      → озвучить вторую страницу
-8. DELETE /api/voice                           → удалить клонированный голос
+1.  GET  /health                                → проверить что сервер жив
+2.  POST /api/auth/register                     → зарегистрироваться (имя, пол, язык) + получить токен
+3.  POST /api/voice/clone                       → загрузить голос (mp3)
+4.  GET  /api/tales?lang=ru                     → посмотреть список сказок
+5.  GET  /api/tales/kolobok                     → получить сказку (pages + totalPages)
+6.  POST /api/tales/kolobok/personalize         → персонализировать текст (имя + пол)
+7.  POST /api/tales/kolobok/narrate?page=0      → озвучить одну страницу
+8.  POST /api/tales/kolobok/narrate-all         → озвучить всю книгу (async)
+9.  GET  /api/tales/kolobok/narration-status    → проверить прогресс озвучки
+10. GET  /api/tales/kolobok/narration/0         → скачать озвученную страницу
+11. POST /api/voice/drafts                      → создать черновик
+12. GET  /api/voice/drafts                      → список черновиков
+13. GET  /api/user/profile                      → получить профиль
+14. PUT  /api/user/profile                      → обновить профиль
+15. DELETE /api/voice                           → удалить клонированный голос
 ```

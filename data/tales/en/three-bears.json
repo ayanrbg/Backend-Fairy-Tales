@@ -5,8 +5,8 @@
   "pages": [
     "Once upon a time, there were three bears who lived in a house in the forest. There was a great big father bear, a middle-sized mother bear, and a little baby bear.",
     "One morning, their breakfast porridge was too hot, so they went for a walk in the forest while it cooled.",
-    "Along came a little girl called Goldilocks. She knocked on the door, and when no one answered, she walked right in.",
-    "On the table were three bowls of porridge. Goldilocks tasted the porridge from the great big bowl. «This porridge is too hot!» she said. Then she tasted the porridge from the middle-sized bowl. «This porridge is too cold!» she said.",
-    "Then she tasted the porridge from the little bowl. «This porridge is just right!» she said, and ate it all up."
+    "Along came a little {m:boy|f:girl} called {childName}. {m:He|f:She} knocked on the door, and when no one answered, {m:he|f:she} walked right in.",
+    "On the table were three bowls of porridge. {childName} tasted the porridge from the great big bowl. «This porridge is too hot!» {m:he|f:she} said. Then {m:he|f:she} tasted the porridge from the middle-sized bowl. «This porridge is too cold!» {m:he|f:she} said.",
+    "Then {m:he|f:she} tasted the porridge from the little bowl. «This porridge is just right!» {m:he|f:she} said, and ate it all up."
   ]
 }

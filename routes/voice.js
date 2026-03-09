@@ -61,4 +61,61 @@ router.delete('/', auth, async (req, res) => {
   }
 });
 
+// === Drafts ===
+const draftsService = require('../services/draftsService');
+
+// GET /api/voice/drafts
+router.get('/drafts', auth, async (req, res) => {
+  try {
+    const drafts = await draftsService.listDrafts(req.userId);
+    res.json(drafts);
+  } catch (err) {
+    console.error('List drafts error:', err.message);
+    res.status(500).json({ error: 'Failed to list drafts' });
+  }
+});
+
+// POST /api/voice/drafts
+router.post('/drafts', auth, async (req, res) => {
+  try {
+    const { narratorName, taleId } = req.body;
+    if (!narratorName || !taleId) {
+      return res.status(400).json({ error: 'narratorName and taleId are required' });
+    }
+    const draft = await draftsService.createDraft(req.userId, narratorName, taleId);
+    res.json({ draft });
+  } catch (err) {
+    console.error('Create draft error:', err.message);
+    res.status(500).json({ error: 'Failed to create draft' });
+  }
+});
+
+// GET /api/voice/drafts/:id
+router.get('/drafts/:id', auth, async (req, res) => {
+  try {
+    const draft = await draftsService.getDraft(req.userId, req.params.id);
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+    res.json(draft);
+  } catch (err) {
+    console.error('Get draft error:', err.message);
+    res.status(500).json({ error: 'Failed to get draft' });
+  }
+});
+
+// DELETE /api/voice/drafts/:id
+router.delete('/drafts/:id', auth, async (req, res) => {
+  try {
+    const deleted = await draftsService.deleteDraft(req.userId, req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+    res.json({ status: 'deleted' });
+  } catch (err) {
+    console.error('Delete draft error:', err.message);
+    res.status(500).json({ error: 'Failed to delete draft' });
+  }
+});
+
 module.exports = router;
