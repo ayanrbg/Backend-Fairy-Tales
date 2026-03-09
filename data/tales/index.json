@@ -1,0 +1,5 @@
+[
+  { "id": "kolobok",     "title": "Колобок",     "lang": "ru", "file": "ru/kolobok.json" },
+  { "id": "teremok",     "title": "Теремок",     "lang": "ru", "file": "ru/teremok.json" },
+  { "id": "three-bears", "title": "Three Bears",  "lang": "en", "file": "en/three-bears.json" }
+]

@@ -166,16 +166,57 @@ Headers: xi-api-key
 
 ## Порядок реализации
 
-| Шаг | Что делаем                          | Файлы                                    |
-|-----|-------------------------------------|------------------------------------------|
-| 1   | Настройка `.env`, базовый сервер    | `.env`, `server.js`                      |
-| 2   | JWT авторизация                     | `middleware/auth.js`, `routes/auth.js`   |
-| 3   | Multer для загрузки аудио           | `middleware/upload.js`                   |
-| 4   | ElevenLabs сервис                   | `services/elevenlabs.js`                 |
-| 5   | Клонирование голоса + кэш           | `routes/voice.js`, `data/users.json`     |
-| 6   | Сказки: каталог и загрузчик         | `data/tales/`, `utils/talesLoader.js`    |
-| 7   | Роуты сказок + озвучка              | `routes/tales.js`                        |
-| 8   | Подключить всё в server.js          | `server.js`                              |
+### Шаг 1 — Полная реализация сервера [DONE]
+
+**Статус:** Выполнено
+
+**Что сделано:**
+
+1. **`.env`** — добавлены переменные `JWT_SECRET` и `MAX_FILE_SIZE_MB` к существующему `ELEVENLABS_API_KEY` и `PORT`
+2. **`server.js`** — Express-сервер с подключением CORS, JSON-парсера, всех роутов (`/api/auth`, `/api/voice`, `/api/tales`), health-check `/health`, глобальный обработчик ошибок
+3. **`middleware/auth.js`** — JWT middleware: извлекает токен из `Authorization: Bearer ...`, проверяет подпись, прокидывает `req.userId`
+4. **`middleware/upload.js`** — Multer конфиг: `memoryStorage`, фильтр по MIME-типам аудио (mp3, wav, m4a, aac, webm, ogg), лимит размера из `.env`
+5. **`services/elevenlabs.js`** — три функции для работы с ElevenLabs API:
+   - `cloneVoice(audioBuffer, fileName, userId)` — POST `/v1/voices/add` через FormData
+   - `textToSpeech(voiceId, text)` — POST `/v1/text-to-speech/{voiceId}` с моделью `eleven_multilingual_v2`, возврат arraybuffer
+   - `deleteVoice(voiceId)` — DELETE `/v1/voices/{voiceId}`
+6. **`routes/auth.js`** — `POST /api/auth/login`: принимает `{ userId }`, возвращает JWT с `expiresIn: '30d'`
+7. **`routes/voice.js`** — два эндпоинта:
+   - `POST /api/voice/clone` — загрузка аудио-сэмпла, клонирование голоса, кэширование `voiceId` в `data/users.json`. Если у юзера уже есть голос — старый удаляется перед клонированием нового
+   - `DELETE /api/voice` — удаление клонированного голоса из ElevenLabs и из `users.json`
+8. **`routes/tales.js`** — три эндпоинта:
+   - `GET /api/tales?lang=ru` — каталог сказок с фильтрацией по языку
+   - `GET /api/tales/:id` — полный текст конкретной сказки
+   - `POST /api/tales/:id/narrate` — генерация аудио через TTS с клонированным голосом юзера, возврат mp3
+9. **`utils/talesLoader.js`** — загрузчик сказок: `getTalesList(lang)` и `getTaleById(id)` из файловой системы
+10. **`data/tales/`** — каталог с тремя демо-сказками:
+    - `ru/kolobok.json` — Колобок
+    - `ru/teremok.json` — Теремок
+    - `en/three-bears.json` — Three Bears
+    - `index.json` — индекс каталога
+11. **`data/users.json`** — пустое хранилище для маппинга userId → voiceId
+12. **`package.json`** — добавлен скрипт `start`, установлена зависимость `jsonwebtoken`
+
+**Проверено:** Сервер запускается без ошибок на порту 3000.
+
+**Файлы создано/изменено:**
+```
+.env                          (изменён — добавлены JWT_SECRET, MAX_FILE_SIZE_MB)
+package.json                  (изменён — добавлен start script, jsonwebtoken)
+server.js                     (создан)
+middleware/auth.js             (создан)
+middleware/upload.js           (создан)
+services/elevenlabs.js         (создан)
+routes/auth.js                 (создан)
+routes/voice.js                (создан)
+routes/tales.js                (создан)
+utils/talesLoader.js           (создан)
+data/tales/index.json          (создан)
+data/tales/ru/kolobok.json     (создан)
+data/tales/ru/teremok.json     (создан)
+data/tales/en/three-bears.json (создан)
+data/users.json                (создан)
+```
 
 ---
 
@@ -188,7 +229,4 @@ Headers: xi-api-key
 - `axios` — HTTP-клиент для ElevenLabs API
 - `cors` — CORS для мобильного приложения
 - `dotenv` — переменные окружения
-
-### Нужно установить
-
 - `jsonwebtoken` — JWT генерация и проверка
