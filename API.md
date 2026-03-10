@@ -344,11 +344,34 @@ Content-Type: application/json
 
 Запускает фоновую озвучку всех страниц сказки голосом пользователя. Озвучка идёт постранично, прогресс можно отслеживать через `narration-status`.
 
+**ВАЖНО:** Перед озвучкой сервер ДОЛЖЕН персонализировать текст — подставить `name` и `gender` из тела запроса в шаблоны `{childName}` и `{m:...|f:...}`. Используется та же логика что в endpoint `/personalize`. Без этого AI будет читать вслух сырые плейсхолдеры.
+
 **Запрос:**
 ```
 POST /api/tales/kolobok/narrate-all
 Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Маша",
+  "gender": "female"
+}
 ```
+
+**Параметры тела:**
+
+| Поле     | Тип    | Обязательный | Описание |
+|----------|--------|--------------|----------|
+| `name`   | string | да           | Имя ребёнка (для подстановки `{childName}`) |
+| `gender` | string | да           | Пол: `"male"` или `"female"` (для выбора в `{m:...\|f:...}`) |
+
+**Логика на сервере:**
+1. Загрузить текст сказки (`pages[]`)
+2. Для каждой страницы выполнить персонализацию:
+   - Заменить `{childName}` → `name`
+   - Заменить `{m:текст|f:текст}` → выбрать вариант по `gender`
+3. Озвучить персонализированный текст через ElevenLabs API
+4. Сохранить результат
 
 **Ответ (200):**
 ```json
@@ -362,6 +385,9 @@ Authorization: Bearer <token>
 ```json
 // 400 — голос не клонирован
 { "error": "No cloned voice. Clone your voice first via POST /api/voice/clone" }
+
+// 400 — не указано имя
+{ "error": "name and gender are required" }
 
 // 404 — сказка не найдена
 { "error": "Tale not found" }

@@ -115,11 +115,17 @@ router.post('/:id/personalize', auth, async (req, res) => {
 
 // POST /api/tales/:id/narrate-all
 // Start async full book narration with cloned voice.
+// Requires name and gender in body for personalization before TTS.
 router.post('/:id/narrate-all', auth, async (req, res) => {
   try {
     const tale = await talesService.getTaleById(req.params.id);
     if (!tale) {
       return res.status(404).json({ error: 'Tale not found' });
+    }
+
+    const { name, gender } = req.body;
+    if (!name || !gender) {
+      return res.status(400).json({ error: 'name and gender are required' });
     }
 
     const user = await usersService.getUser(req.userId);
@@ -134,13 +140,24 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
     const voiceId = user.voice_id;
     const taleId = tale.id;
 
+    // Personalize pages before narration
+    const personalizedPages = tale.pages.map((text) => {
+      let result = text;
+      result = result.replace(/\{childName\}/g, name);
+      result = result.replace(/\{ChildName\}/g, name);
+      result = result.replace(/\{m:([^|]+)\|f:([^}]+)\}/g, (_, m, f) => {
+        return gender === 'female' ? f : m;
+      });
+      return result;
+    });
+
     (async () => {
       const jobDir = path.join(STORAGE_DIR, req.userId, taleId);
       fs.mkdirSync(jobDir, { recursive: true });
 
       for (let i = 0; i < tale.totalPages; i++) {
         try {
-          const audioBuffer = await textToSpeech(voiceId, tale.pages[i]);
+          const audioBuffer = await textToSpeech(voiceId, personalizedPages[i]);
           fs.writeFileSync(path.join(jobDir, `${i}.mp3`), audioBuffer);
           await narrationService.updateJobProgress(jobId, i + 1);
         } catch (err) {
