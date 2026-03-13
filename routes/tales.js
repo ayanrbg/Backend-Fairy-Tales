@@ -24,11 +24,12 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// GET /api/tales/:id
+// GET /api/tales/:id?lang=ru
 // Returns a single tale with pages array and totalPages.
 router.get('/:id', auth, async (req, res) => {
   try {
-    const tale = await talesService.getTaleById(req.params.id);
+    const lang = req.query.lang;
+    const tale = await talesService.getTaleById(req.params.id, lang);
 
     if (!tale) {
       return res.status(404).json({ error: 'Tale not found' });
@@ -41,11 +42,11 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// POST /api/tales/:id/narrate?page=0
+// POST /api/tales/:id/narrate?page=0&lang=ru
 // Generate narrated audio for a single page of a tale.
 router.post('/:id/narrate', auth, async (req, res) => {
   try {
-    const tale = await talesService.getTaleById(req.params.id);
+    const tale = await talesService.getTaleById(req.params.id, req.query.lang);
     if (!tale) {
       return res.status(404).json({ error: 'Tale not found' });
     }
@@ -80,11 +81,11 @@ router.post('/:id/narrate', auth, async (req, res) => {
   }
 });
 
-// POST /api/tales/:id/personalize
+// POST /api/tales/:id/personalize?lang=ru
 // Personalize tale text with child's name and gender.
 router.post('/:id/personalize', auth, async (req, res) => {
   try {
-    const tale = await talesService.getTaleById(req.params.id);
+    const tale = await talesService.getTaleById(req.params.id, req.query.lang);
     if (!tale) {
       return res.status(404).json({ error: 'Tale not found' });
     }
@@ -113,12 +114,12 @@ router.post('/:id/personalize', auth, async (req, res) => {
   }
 });
 
-// POST /api/tales/:id/narrate-all
+// POST /api/tales/:id/narrate-all?lang=ru
 // Start async full book narration with cloned voice.
 // Requires name and gender in body for personalization before TTS.
 router.post('/:id/narrate-all', auth, async (req, res) => {
   try {
-    const tale = await talesService.getTaleById(req.params.id);
+    const tale = await talesService.getTaleById(req.params.id, req.query.lang);
     if (!tale) {
       return res.status(404).json({ error: 'Tale not found' });
     }

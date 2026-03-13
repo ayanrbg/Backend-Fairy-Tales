@@ -11,11 +11,12 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS tales (
     id            SERIAL PRIMARY KEY,
-    slug          VARCHAR(255) UNIQUE NOT NULL,
+    slug          VARCHAR(255) NOT NULL,
     title         VARCHAR(500) NOT NULL,
     lang          VARCHAR(10) NOT NULL,
     pages         JSONB NOT NULL DEFAULT '[]',
-    created_at    TIMESTAMP DEFAULT NOW()
+    created_at    TIMESTAMP DEFAULT NOW(),
+    UNIQUE(slug, lang)
 );
 
 CREATE TABLE IF NOT EXISTS narration_jobs (

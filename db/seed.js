@@ -30,8 +30,8 @@ async function seed() {
     await pool.query(
       `INSERT INTO tales (slug, title, lang, pages)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (slug) DO UPDATE
-       SET title = EXCLUDED.title, lang = EXCLUDED.lang, pages = EXCLUDED.pages`,
+       ON CONFLICT (slug, lang) DO UPDATE
+       SET title = EXCLUDED.title, pages = EXCLUDED.pages`,
       [tale.id, tale.title, tale.lang, JSON.stringify(tale.pages)]
     );
 

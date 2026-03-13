@@ -15,11 +15,18 @@ async function getTalesList(lang) {
   return rows;
 }
 
-async function getTaleById(id) {
-  const { rows } = await pool.query(
-    'SELECT slug AS id, title, lang, pages FROM tales WHERE slug = $1',
-    [id]
-  );
+async function getTaleById(id, lang) {
+  let query, params;
+
+  if (lang) {
+    query = 'SELECT slug AS id, title, lang, pages FROM tales WHERE slug = $1 AND lang = $2';
+    params = [id, lang];
+  } else {
+    query = 'SELECT slug AS id, title, lang, pages FROM tales WHERE slug = $1 LIMIT 1';
+    params = [id];
+  }
+
+  const { rows } = await pool.query(query, params);
 
   if (!rows[0]) return null;
 
