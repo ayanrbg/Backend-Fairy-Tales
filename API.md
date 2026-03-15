@@ -122,11 +122,32 @@ Authorization: Bearer <token>
 **Ответ (200):**
 ```json
 [
-  { "id": "kolobok",     "title": "Колобок",    "lang": "ru", "file": "ru/kolobok.json" },
-  { "id": "teremok",     "title": "Теремок",    "lang": "ru", "file": "ru/teremok.json" },
-  { "id": "three-bears", "title": "Three Bears", "lang": "en", "file": "en/three-bears.json" }
+  {
+    "id": "kolobok",
+    "title": "Колобок",
+    "lang": "ru",
+    "hasDefaultNarration": true,
+    "coverUrl": "/api/tales/kolobok/cover"
+  },
+  {
+    "id": "teremok",
+    "title": "Теремок",
+    "lang": "ru",
+    "hasDefaultNarration": false,
+    "coverUrl": "/api/tales/teremok/cover"
+  }
 ]
 ```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | string | ID сказки (одинаковый для всех языков) |
+| `title` | string | Название на языке версии |
+| `lang` | string | Код языка (`ru`, `en`, `kz`) |
+| `hasDefaultNarration` | boolean | Есть ли озвучка диктора для данного языка |
+| `coverUrl` | string | URL для загрузки обложки |
+
+> `hasDefaultNarration` проверяет наличие файлов в `data/narration/default/{id}/{lang}/`. Это избавляет клиент от N+1 запросов для каждой сказки.
 
 ---
 
@@ -136,9 +157,13 @@ Authorization: Bearer <token>
 
 **Запрос:**
 ```
-GET /api/tales/kolobok
+GET /api/tales/kolobok?lang=ru
 Authorization: Bearer <token>
 ```
+
+| Параметр | Тип | Обяз. | Описание |
+|----------|-----|-------|----------|
+| `lang` | string | нет | Язык версии. Если не указан — первая найденная версия |
 
 **Ответ (200):**
 ```json
@@ -556,6 +581,146 @@ Authorization: Bearer <token>
 
 ---
 
+## 19. Обложка сказки
+
+Возвращает изображение обложки. Обложка **не зависит от языка** — одна картинка для всех версий.
+
+**Запрос:**
+```
+GET /api/tales/kolobok/cover
+Authorization: Bearer <token>
+```
+
+**Ответ (200):**
+```
+Content-Type: image/jpeg
+Cache-Control: public, max-age=86400
+Content-Length: 45231
+
+<бинарные данные изображения>
+```
+
+> `Content-Type` определяется автоматически по расширению файла (`.jpg` → `image/jpeg`, `.png` → `image/png`, `.webp` → `image/webp`).
+
+**Ошибка (404):**
+```json
+{ "error": "Cover not found for tale: kolobok" }
+```
+
+---
+
+## 20. Иллюстрация страницы
+
+Возвращает иллюстрацию для конкретной страницы. Иллюстрации **не зависят от языка** — одни и те же картинки.
+
+**Запрос:**
+```
+GET /api/tales/kolobok/illustration/0
+Authorization: Bearer <token>
+```
+
+**Параметры:**
+
+| Параметр | Тип | Обяз. | Описание |
+|----------|-----|-------|----------|
+| `id` | string | да | ID сказки |
+| `page` | int | да | Индекс страницы (0 .. totalPages-1) |
+
+**Ответ (200):**
+```
+Content-Type: image/jpeg
+Cache-Control: public, max-age=86400
+Content-Length: 128450
+
+<бинарные данные изображения>
+```
+
+**Ошибки:**
+```json
+// 400 — невалидный номер страницы
+{ "error": "Invalid page number" }
+
+// 404 — иллюстрация не найдена
+{ "error": "Illustration not found: kolobok page 5" }
+```
+
+---
+
+## 21. Дефолтная озвучка страницы (диктор)
+
+Возвращает MP3-файл дефолтной озвучки профессиональным диктором. Это НЕ AI-озвучка — это заранее записанные аудиофайлы. Озвучка **зависит от языка**.
+
+**Запрос:**
+```
+GET /api/tales/kolobok/default-narration/0?lang=ru
+Authorization: Bearer <token>
+```
+
+**Параметры:**
+
+| Параметр | Тип | Обяз. | Описание |
+|----------|-----|-------|----------|
+| `id` | string | да | ID сказки |
+| `page` | int | да | Индекс страницы (0 .. totalPages-1) |
+| `lang` | string | нет | Язык озвучки (`ru`/`kz`/`en`). По умолчанию — язык из профиля пользователя |
+
+**Ответ (200):**
+```
+Content-Type: audio/mpeg
+Content-Disposition: attachment; filename="kolobok-ru-0.mp3"
+
+<бинарные данные mp3>
+```
+
+**Ошибки:**
+```json
+// 400 — невалидный номер страницы
+{ "error": "Invalid page number" }
+
+// 404 — озвучка не найдена
+{ "error": "Default narration not found: kolobok/ru page 0" }
+```
+
+---
+
+## 22. Проверка наличия дефолтной озвучки
+
+Клиенту нужно знать, есть ли дефолтная озвучка для сказки на конкретном языке, чтобы показать/скрыть кнопку «Слушать». Возвращает список доступных страниц.
+
+**Запрос:**
+```
+GET /api/tales/kolobok/default-narration?lang=ru
+Authorization: Bearer <token>
+```
+
+**Параметры:**
+
+| Параметр | Тип | Обяз. | Описание |
+|----------|-----|-------|----------|
+| `lang` | string | нет | Язык. По умолчанию — из профиля пользователя |
+
+**Ответ (200) — озвучка есть:**
+```json
+{
+  "available": true,
+  "lang": "ru",
+  "pages": [0, 1, 2, 3]
+}
+```
+
+**Ответ (200) — озвучки нет:**
+```json
+{
+  "available": false,
+  "lang": "kz",
+  "pages": []
+}
+```
+
+> Если `lang` не передан, используется язык из профиля пользователя, fallback — `"ru"`.
+
+---
+
 ## Формат файла сказки
 
 Тексты хранятся в `data/tales/{lang}/{id}.json`. Поле `pages` — массив строк, каждая строка = один экран/слайд.
@@ -585,19 +750,23 @@ Authorization: Bearer <token>
 ## Типичный флоу тестирования
 
 ```
-1.  GET  /health                                → проверить что сервер жив
-2.  POST /api/auth/register                     → зарегистрироваться (имя, пол, язык) + получить токен
-3.  POST /api/voice/clone                       → загрузить голос (mp3)
-4.  GET  /api/tales?lang=ru                     → посмотреть список сказок
-5.  GET  /api/tales/kolobok                     → получить сказку (pages + totalPages)
-6.  POST /api/tales/kolobok/personalize         → персонализировать текст (имя + пол)
-7.  POST /api/tales/kolobok/narrate?page=0      → озвучить одну страницу
-8.  POST /api/tales/kolobok/narrate-all         → озвучить всю книгу (async)
-9.  GET  /api/tales/kolobok/narration-status    → проверить прогресс озвучки
-10. GET  /api/tales/kolobok/narration/0         → скачать озвученную страницу
-11. POST /api/voice/drafts                      → создать черновик
-12. GET  /api/voice/drafts                      → список черновиков
-13. GET  /api/user/profile                      → получить профиль
-14. PUT  /api/user/profile                      → обновить профиль
-15. DELETE /api/voice                           → удалить клонированный голос
+1.  GET  /health                                         → проверить что сервер жив
+2.  POST /api/auth/register                              → зарегистрироваться (имя, пол, язык) + получить токен
+3.  POST /api/voice/clone                                → загрузить голос (mp3)
+4.  GET  /api/tales?lang=ru                              → посмотреть список сказок (+ hasDefaultNarration, coverUrl)
+5.  GET  /api/tales/kolobok?lang=ru                      → получить сказку (pages + totalPages)
+6.  GET  /api/tales/kolobok/cover                        → загрузить обложку
+7.  GET  /api/tales/kolobok/illustration/0               → загрузить иллюстрацию страницы
+8.  GET  /api/tales/kolobok/default-narration?lang=ru    → проверить наличие дефолтной озвучки
+9.  GET  /api/tales/kolobok/default-narration/0?lang=ru  → скачать дефолтную озвучку страницы
+10. POST /api/tales/kolobok/personalize                  → персонализировать текст (имя + пол)
+11. POST /api/tales/kolobok/narrate?page=0               → озвучить одну страницу (AI-голос)
+12. POST /api/tales/kolobok/narrate-all                  → озвучить всю книгу (async, AI-голос)
+13. GET  /api/tales/kolobok/narration-status             → проверить прогресс озвучки
+14. GET  /api/tales/kolobok/narration/0                  → скачать озвученную страницу
+15. POST /api/voice/drafts                               → создать черновик
+16. GET  /api/voice/drafts                               → список черновиков
+17. GET  /api/user/profile                               → получить профиль
+18. PUT  /api/user/profile                               → обновить профиль
+19. DELETE /api/voice                                    → удалить клонированный голос
 ```
