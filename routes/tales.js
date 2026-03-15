@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const auth = require('../middleware/auth');
+const { sendAsWebP } = require('../middleware/webpConverter');
 const { textToSpeech } = require('../services/elevenlabs');
 const talesService = require('../services/talesService');
 const usersService = require('../services/usersService');
@@ -13,8 +14,13 @@ const router = express.Router();
 const STORAGE_DIR = path.join(__dirname, '..', 'storage');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 
+// Validate that an ID param is a safe filename (no path traversal)
+function isSafeId(id) {
+  return /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
 // Helper: find file with any extension from list
-function findAsset(basePath, extensions = ['.jpg', '.png', '.webp']) {
+function findAsset(basePath, extensions = ['.webp', '.jpg', '.png']) {
   for (const ext of extensions) {
     const filePath = basePath + ext;
     if (fs.existsSync(filePath)) return filePath;
@@ -237,17 +243,22 @@ router.get('/:id/narration/:page', auth, async (req, res) => {
 // GET /api/tales/:id/cover
 // Returns tale cover image.
 router.get('/:id/cover', auth, (req, res) => {
+  if (!isSafeId(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid tale id' });
+  }
   const filePath = findAsset(path.join(DATA_DIR, 'covers', req.params.id));
   if (!filePath) {
     return res.status(404).json({ error: `Cover not found for tale: ${req.params.id}` });
   }
-  res.set('Cache-Control', 'public, max-age=86400');
-  res.sendFile(path.resolve(filePath));
+  sendAsWebP(res, filePath);
 });
 
 // GET /api/tales/:id/illustration/:page
 // Returns illustration image for a specific page.
 router.get('/:id/illustration/:page', auth, (req, res) => {
+  if (!isSafeId(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid tale id' });
+  }
   const page = parseInt(req.params.page);
   if (isNaN(page) || page < 0) {
     return res.status(400).json({ error: 'Invalid page number' });
@@ -256,8 +267,7 @@ router.get('/:id/illustration/:page', auth, (req, res) => {
   if (!filePath) {
     return res.status(404).json({ error: `Illustration not found: ${req.params.id} page ${page}` });
   }
-  res.set('Cache-Control', 'public, max-age=86400');
-  res.sendFile(path.resolve(filePath));
+  sendAsWebP(res, filePath);
 });
 
 // Helper: resolve language from query param or user profile
@@ -270,6 +280,9 @@ async function resolveLang(req) {
 // GET /api/tales/:id/default-narration/:page?lang=ru
 // Returns default narrator MP3 for a specific page.
 router.get('/:id/default-narration/:page', auth, async (req, res) => {
+  if (!isSafeId(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid tale id' });
+  }
   const page = parseInt(req.params.page);
   if (isNaN(page) || page < 0) {
     return res.status(400).json({ error: 'Invalid page number' });
@@ -286,6 +299,9 @@ router.get('/:id/default-narration/:page', auth, async (req, res) => {
 // GET /api/tales/:id/default-narration?lang=ru
 // Check availability of default narration, returns list of available pages.
 router.get('/:id/default-narration', auth, async (req, res) => {
+  if (!isSafeId(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid tale id' });
+  }
   const lang = await resolveLang(req);
   const dir = path.join(DATA_DIR, 'narration', 'default', req.params.id, lang);
   if (!fs.existsSync(dir)) {
