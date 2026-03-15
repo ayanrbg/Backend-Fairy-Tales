@@ -240,6 +240,13 @@ router.get('/:id/narration/:page', auth, async (req, res) => {
   }
 });
 
+// TODO: REMOVE - temporary test endpoint without auth
+router.get('/test-webp', (req, res) => {
+  const filePath = findAsset(path.join(DATA_DIR, 'covers', 'white_camel'));
+  if (!filePath) return res.status(404).json({ error: 'Test image not found' });
+  sendAsWebP(res, filePath);
+});
+
 // GET /api/tales/:id/cover
 // Returns tale cover image.
 router.get('/:id/cover', auth, (req, res) => {
