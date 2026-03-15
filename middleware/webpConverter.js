@@ -8,46 +8,32 @@ const CACHE_DIR = path.join(__dirname, '..', 'data', '.webp-cache');
 // Ensure cache dir exists
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-/**
- * Middleware: converts any image response to WebP before sending.
- * Caches the result so conversion happens only once per file.
- *
- * Usage: wrap sendFile calls for illustration and cover endpoints.
- */
 async function sendAsWebP(res, originalPath) {
-  // Build cache path: flatten original path into a single filename
-  const cacheKey = originalPath
+  const absPath = path.resolve(originalPath);
+  const cacheKey = absPath
     .replace(/[\/\\:]/g, '_')
     .replace(/\.(jpg|jpeg|png|webp)$/i, '.webp');
   const cachePath = path.join(CACHE_DIR, cacheKey);
+  const fileName = path.basename(absPath).replace(/\.(jpg|jpeg|png|webp)$/i, '.webp');
 
-  // Filename for Content-Disposition
-  const fileName = path.basename(originalPath).replace(/\.(jpg|jpeg|png|webp)$/i, '.webp');
-
-  // Serve from cache if exists
-  if (fs.existsSync(cachePath)) {
-    res.set('Content-Type', 'image/webp');
-    res.set('Content-Disposition', `inline; filename="${fileName}"`);
-    res.set('Cache-Control', 'public, max-age=86400');
-    return res.sendFile(path.resolve(cachePath));
-  }
-
-  // Convert and cache
   try {
-    await sharp(originalPath)
-      .webp({ quality: WEBP_QUALITY })
-      .toFile(cachePath);
+    let webpBuffer;
+
+    if (fs.existsSync(cachePath)) {
+      webpBuffer = fs.readFileSync(cachePath);
+    } else {
+      webpBuffer = await sharp(absPath).webp({ quality: WEBP_QUALITY }).toBuffer();
+      fs.writeFileSync(cachePath, webpBuffer);
+    }
 
     res.set('Content-Type', 'image/webp');
     res.set('Content-Disposition', `inline; filename="${fileName}"`);
+    res.set('Content-Length', webpBuffer.length);
     res.set('Cache-Control', 'public, max-age=86400');
-    res.sendFile(path.resolve(cachePath));
+    res.send(webpBuffer);
   } catch (err) {
-    console.error(`[WebP] Conversion failed: ${originalPath}`, err.message);
-    console.error(`[WebP] Cache dir: ${CACHE_DIR}, exists: ${fs.existsSync(CACHE_DIR)}`);
-    console.error(`[WebP] Cache path: ${cachePath}`);
-    // Fallback: send original file as-is
-    res.sendFile(path.resolve(originalPath));
+    console.error(`[WebP] Conversion failed: ${absPath}`, err.message);
+    res.sendFile(absPath);
   }
 }
 
