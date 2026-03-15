@@ -44,6 +44,8 @@ async function sendAsWebP(res, originalPath) {
     res.sendFile(path.resolve(cachePath));
   } catch (err) {
     console.error(`[WebP] Conversion failed: ${originalPath}`, err.message);
+    console.error(`[WebP] Cache dir: ${CACHE_DIR}, exists: ${fs.existsSync(CACHE_DIR)}`);
+    console.error(`[WebP] Cache path: ${cachePath}`);
     // Fallback: send original file as-is
     res.sendFile(path.resolve(originalPath));
   }
