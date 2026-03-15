@@ -21,9 +21,13 @@ async function sendAsWebP(res, originalPath) {
     .replace(/\.(jpg|jpeg|png|webp)$/i, '.webp');
   const cachePath = path.join(CACHE_DIR, cacheKey);
 
+  // Filename for Content-Disposition
+  const fileName = path.basename(originalPath).replace(/\.(jpg|jpeg|png|webp)$/i, '.webp');
+
   // Serve from cache if exists
   if (fs.existsSync(cachePath)) {
     res.set('Content-Type', 'image/webp');
+    res.set('Content-Disposition', `inline; filename="${fileName}"`);
     res.set('Cache-Control', 'public, max-age=86400');
     return res.sendFile(path.resolve(cachePath));
   }
@@ -35,6 +39,7 @@ async function sendAsWebP(res, originalPath) {
       .toFile(cachePath);
 
     res.set('Content-Type', 'image/webp');
+    res.set('Content-Disposition', `inline; filename="${fileName}"`);
     res.set('Cache-Control', 'public, max-age=86400');
     res.sendFile(path.resolve(cachePath));
   } catch (err) {
