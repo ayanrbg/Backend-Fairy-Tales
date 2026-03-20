@@ -13,6 +13,7 @@ const router = express.Router();
 
 const STORAGE_DIR = path.join(__dirname, '..', 'storage');
 const DATA_DIR = path.join(__dirname, '..', 'data');
+const NARRATOR_VOICE_ID = process.env.NARRATOR_VOICE_ID;
 
 // Validate that an ID param is a safe filename (no path traversal)
 function isSafeId(id) {
@@ -58,8 +59,9 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-// POST /api/tales/:id/narrate?page=0&lang=ru
+// POST /api/tales/:id/narrate?page=0&lang=ru&voice=narrator
 // Generate narrated audio for a single page of a tale.
+// voice=narrator uses the professional narrator voice instead of user's cloned voice.
 router.post('/:id/narrate', auth, async (req, res) => {
   try {
     const tale = await talesService.getTaleById(req.params.id, req.query.lang);
@@ -74,12 +76,21 @@ router.post('/:id/narrate', auth, async (req, res) => {
       });
     }
 
-    const user = await usersService.getUser(req.userId);
-    if (!user || !user.voice_id) {
-      return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
+    let voiceId;
+    if (req.query.voice === 'narrator') {
+      if (!NARRATOR_VOICE_ID) {
+        return res.status(503).json({ error: 'Narrator voice is not configured' });
+      }
+      voiceId = NARRATOR_VOICE_ID;
+    } else {
+      const user = await usersService.getUser(req.userId);
+      if (!user || !user.voice_id) {
+        return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
+      }
+      voiceId = user.voice_id;
     }
 
-    const audioBuffer = await textToSpeech(user.voice_id, tale.pages[page]);
+    const audioBuffer = await textToSpeech(voiceId, tale.pages[page]);
 
     res.set({
       'Content-Type': 'audio/mpeg',
@@ -131,8 +142,9 @@ router.post('/:id/personalize', auth, async (req, res) => {
 });
 
 // POST /api/tales/:id/narrate-all?lang=ru
-// Start async full book narration with cloned voice.
+// Start async full book narration.
 // Requires name and gender in body for personalization before TTS.
+// Pass voice: "narrator" in body to use the professional narrator voice.
 router.post('/:id/narrate-all', auth, async (req, res) => {
   try {
     const tale = await talesService.getTaleById(req.params.id, req.query.lang);
@@ -140,21 +152,29 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
       return res.status(404).json({ error: 'Tale not found' });
     }
 
-    const { name, gender } = req.body;
+    const { name, gender, voice } = req.body;
     if (!name || !gender) {
       return res.status(400).json({ error: 'name and gender are required' });
     }
 
-    const user = await usersService.getUser(req.userId);
-    if (!user || !user.voice_id) {
-      return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
+    let voiceId;
+    if (voice === 'narrator') {
+      if (!NARRATOR_VOICE_ID) {
+        return res.status(503).json({ error: 'Narrator voice is not configured' });
+      }
+      voiceId = NARRATOR_VOICE_ID;
+    } else {
+      const user = await usersService.getUser(req.userId);
+      if (!user || !user.voice_id) {
+        return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
+      }
+      voiceId = user.voice_id;
     }
 
     const job = await narrationService.createJob(req.userId, tale.id, tale.totalPages);
 
     // Run narration in background
     const jobId = job.job_id;
-    const voiceId = user.voice_id;
     const taleId = tale.id;
 
     // Personalize pages before narration
