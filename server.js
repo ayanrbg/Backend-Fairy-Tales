@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const voiceRoutes = require('./routes/voice');
 const talesRoutes = require('./routes/tales');
+const subscriptionRoutes = require('./routes/subscription');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/voice', voiceRoutes);
 app.use('/api/tales', talesRoutes);
+app.use('/api/subscription', subscriptionRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

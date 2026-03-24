@@ -15,8 +15,19 @@ CREATE TABLE IF NOT EXISTS tales (
     title         VARCHAR(500) NOT NULL,
     lang          VARCHAR(10) NOT NULL,
     pages         JSONB NOT NULL DEFAULT '[]',
+    free          BOOLEAN DEFAULT TRUE,
     created_at    TIMESTAMP DEFAULT NOW(),
     UNIQUE(slug, lang)
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    user_id                 VARCHAR(255) PRIMARY KEY REFERENCES users(user_id),
+    product_id              TEXT NOT NULL,
+    original_transaction_id TEXT,
+    expires_at              TIMESTAMP NOT NULL,
+    platform                TEXT NOT NULL DEFAULT 'apple',
+    created_at              TIMESTAMP DEFAULT NOW(),
+    updated_at              TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS narration_jobs (

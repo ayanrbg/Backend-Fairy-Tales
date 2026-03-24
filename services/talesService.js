@@ -5,7 +5,7 @@ const pool = require('../db');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 
 async function getTalesList(lang) {
-  let query = 'SELECT slug AS id, title, lang FROM tales';
+  let query = 'SELECT slug AS id, title, lang, COALESCE(free, false) AS free FROM tales';
   const params = [];
 
   if (lang) {
