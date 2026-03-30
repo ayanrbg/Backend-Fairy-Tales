@@ -34,10 +34,10 @@ async function getTaleById(id, lang) {
   let query, params;
 
   if (lang) {
-    query = 'SELECT slug AS id, title, lang, pages FROM tales WHERE slug = $1 AND lang = $2';
+    query = 'SELECT slug AS id, title, lang, pages, COALESCE(free, false) AS free FROM tales WHERE slug = $1 AND lang = $2';
     params = [id, lang];
   } else {
-    query = 'SELECT slug AS id, title, lang, pages FROM tales WHERE slug = $1 LIMIT 1';
+    query = 'SELECT slug AS id, title, lang, pages, COALESCE(free, false) AS free FROM tales WHERE slug = $1 LIMIT 1';
     params = [id];
   }
 
