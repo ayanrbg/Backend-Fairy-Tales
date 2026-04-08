@@ -4,7 +4,7 @@ const path = require('path');
 
 const auth = require('../middleware/auth');
 const { sendAsWebP } = require('../middleware/webpConverter');
-const { textToSpeech } = require('../services/elevenlabs');
+const { textToSpeech } = require('../services/tts');
 const talesService = require('../services/talesService');
 const usersService = require('../services/usersService');
 const narrationService = require('../services/narrationService');
@@ -13,7 +13,6 @@ const router = express.Router();
 
 const STORAGE_DIR = path.join(__dirname, '..', 'storage');
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const NARRATOR_VOICE_ID = process.env.NARRATOR_VOICE_ID;
 
 // Validate that an ID param is a safe filename (no path traversal)
 function isSafeId(id) {
@@ -76,21 +75,30 @@ router.post('/:id/narrate', auth, async (req, res) => {
       });
     }
 
-    let voiceId;
+    const { name, gender } = req.body || {};
+    if (!name || !gender) {
+      return res.status(400).json({ error: 'name and gender are required in request body' });
+    }
+
+    // Personalize page text
+    let text = tale.pages[page];
+    text = text.replace(/\{childName\}/g, name);
+    text = text.replace(/\{ChildName\}/g, name);
+    text = text.replace(/\{m:([^|]+)\|f:([^}]+)\}/g, (_, m, f) => {
+      return gender === 'female' ? f : m;
+    });
+
+    let audioBuffer;
     if (req.query.voice === 'narrator') {
-      if (!NARRATOR_VOICE_ID) {
-        return res.status(503).json({ error: 'Narrator voice is not configured' });
-      }
-      voiceId = NARRATOR_VOICE_ID;
+      const lang = req.query.lang || 'ru';
+      audioBuffer = await textToSpeech({ text, lang, voiceType: 'default', gender: 'male' });
     } else {
       const user = await usersService.getUser(req.userId);
       if (!user || !user.voice_id) {
         return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
       }
-      voiceId = user.voice_id;
+      audioBuffer = await textToSpeech({ text, voiceType: 'cloned', voiceId: user.voice_id });
     }
-
-    const audioBuffer = await textToSpeech(voiceId, tale.pages[page]);
 
     res.set({
       'Content-Type': 'audio/mpeg',
@@ -157,17 +165,15 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
       return res.status(400).json({ error: 'name and gender are required' });
     }
 
-    let voiceId;
+    let voiceType, voiceId;
     if (voice === 'narrator') {
-      if (!NARRATOR_VOICE_ID) {
-        return res.status(503).json({ error: 'Narrator voice is not configured' });
-      }
-      voiceId = NARRATOR_VOICE_ID;
+      voiceType = 'default';
     } else {
       const user = await usersService.getUser(req.userId);
       if (!user || !user.voice_id) {
         return res.status(400).json({ error: 'No cloned voice. Clone your voice first via POST /api/voice/clone' });
       }
+      voiceType = 'cloned';
       voiceId = user.voice_id;
     }
 
@@ -188,13 +194,15 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
       return result;
     });
 
+    const lang = req.query.lang || 'ru';
+
     (async () => {
       const jobDir = path.join(STORAGE_DIR, req.userId, taleId);
       fs.mkdirSync(jobDir, { recursive: true });
 
       for (let i = 0; i < tale.totalPages; i++) {
         try {
-          const audioBuffer = await textToSpeech(voiceId, personalizedPages[i]);
+          const audioBuffer = await textToSpeech({ text: personalizedPages[i], lang, voiceType, voiceId, gender: 'male' });
           fs.writeFileSync(path.join(jobDir, `${i}.mp3`), audioBuffer);
           await narrationService.updateJobProgress(jobId, i + 1);
         } catch (err) {
@@ -288,48 +296,6 @@ router.get('/:id/illustration/:page', auth, (req, res) => {
     return res.status(404).json({ error: `Illustration not found: ${req.params.id} page ${page}` });
   }
   sendAsWebP(res, filePath);
-});
-
-// Helper: resolve language from query param or user profile
-async function resolveLang(req) {
-  if (req.query.lang) return req.query.lang;
-  const user = await usersService.getUser(req.userId);
-  return user?.lang || 'ru';
-}
-
-// GET /api/tales/:id/default-narration/:page?lang=ru
-// Returns default narrator MP3 for a specific page.
-router.get('/:id/default-narration/:page', auth, async (req, res) => {
-  if (!isSafeId(req.params.id)) {
-    return res.status(400).json({ error: 'Invalid tale id' });
-  }
-  const page = parseInt(req.params.page);
-  if (isNaN(page) || page < 0) {
-    return res.status(400).json({ error: 'Invalid page number' });
-  }
-  const lang = await resolveLang(req);
-  const filePath = path.join(DATA_DIR, 'narration', 'default', req.params.id, lang, `page_${page}.mp3`);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: `Default narration not found: ${req.params.id}/${lang} page ${page}` });
-  }
-  res.set('Content-Disposition', `attachment; filename="${req.params.id}-${lang}-${page}.mp3"`);
-  res.sendFile(path.resolve(filePath));
-});
-
-// GET /api/tales/:id/default-narration?lang=ru
-// Check availability of default narration, returns list of available pages.
-router.get('/:id/default-narration', auth, async (req, res) => {
-  if (!isSafeId(req.params.id)) {
-    return res.status(400).json({ error: 'Invalid tale id' });
-  }
-  const lang = await resolveLang(req);
-  const dir = path.join(DATA_DIR, 'narration', 'default', req.params.id, lang);
-  if (!fs.existsSync(dir)) {
-    return res.json({ available: false, lang, pages: [] });
-  }
-  const files = fs.readdirSync(dir).filter(f => f.match(/^page_\d+\.mp3$/));
-  const pages = files.map(f => parseInt(f.match(/page_(\d+)/)[1])).sort((a, b) => a - b);
-  res.json({ available: pages.length > 0, lang, pages });
 });
 
 module.exports = router;

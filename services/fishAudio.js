@@ -1,31 +1,34 @@
 const axios = require('axios');
 const FormData = require('form-data');
 
-const API_BASE = 'https://api.elevenlabs.io/v1';
-const API_KEY = process.env.ELEVENLABS_API_KEY;
+const API_BASE = 'https://api.fish.audio';
+const API_KEY = process.env.FISH_AUDIO_API_KEY;
 
-const headers = { 'xi-api-key': API_KEY };
+const headers = { Authorization: `Bearer ${API_KEY}` };
 
 /**
  * Clone a voice from an audio buffer.
- * Returns the new voice_id.
+ * Returns the new voice_id (model _id).
  */
 async function cloneVoice(audioBuffer, originalName, userId) {
   const form = new FormData();
-  form.append('name', `user_${userId}`);
-  form.append('files', audioBuffer, {
+  form.append('title', `user_${userId}`);
+  form.append('type', 'tts');
+  form.append('train_mode', 'fast');
+  form.append('visibility', 'private');
+  form.append('voices', audioBuffer, {
     filename: originalName || 'sample.mp3',
     contentType: 'audio/mpeg',
   });
 
-  const response = await axios.post(`${API_BASE}/voices/add`, form, {
+  const response = await axios.post(`${API_BASE}/model`, form, {
     headers: {
       ...headers,
       ...form.getHeaders(),
     },
   });
 
-  return response.data.voice_id;
+  return response.data._id;
 }
 
 /**
@@ -34,19 +37,18 @@ async function cloneVoice(audioBuffer, originalName, userId) {
  */
 async function textToSpeech(voiceId, text) {
   const response = await axios.post(
-    `${API_BASE}/text-to-speech/${voiceId}`,
+    `${API_BASE}/v1/tts`,
     {
       text,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-      },
+      reference_id: voiceId,
+      format: 'mp3',
+      mp3_bitrate: 128,
     },
     {
       headers: {
         ...headers,
         'Content-Type': 'application/json',
+        model: 's2-pro',
       },
       responseType: 'arraybuffer',
     }
@@ -59,7 +61,7 @@ async function textToSpeech(voiceId, text) {
  * Delete a cloned voice by its ID.
  */
 async function deleteVoice(voiceId) {
-  await axios.delete(`${API_BASE}/voices/${voiceId}`, { headers });
+  await axios.delete(`${API_BASE}/model/${voiceId}`, { headers });
 }
 
 module.exports = { cloneVoice, textToSpeech, deleteVoice };

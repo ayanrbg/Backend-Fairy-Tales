@@ -1,8 +1,4 @@
-const fs = require('fs');
-const path = require('path');
 const pool = require('../db');
-
-const DATA_DIR = path.join(__dirname, '..', 'data');
 
 async function getTalesList(lang) {
   let query = 'SELECT slug AS id, title, lang, COALESCE(free, false) AS free FROM tales';
@@ -17,17 +13,10 @@ async function getTalesList(lang) {
 
   const { rows } = await pool.query(query, params);
 
-  return rows.map(tale => {
-    const narrationDir = path.join(DATA_DIR, 'narration', 'default', tale.id, tale.lang);
-    const hasDefaultNarration = fs.existsSync(narrationDir) &&
-      fs.readdirSync(narrationDir).some(f => /^page_\d+\.mp3$/.test(f));
-
-    return {
-      ...tale,
-      hasDefaultNarration,
-      coverUrl: `/api/tales/${tale.id}/cover`,
-    };
-  });
+  return rows.map(tale => ({
+    ...tale,
+    coverUrl: `/api/tales/${tale.id}/cover`,
+  }));
 }
 
 async function getTaleById(id, lang) {

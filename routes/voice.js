@@ -2,13 +2,13 @@ const express = require('express');
 
 const auth = require('../middleware/auth');
 const upload = require('../middleware/upload');
-const { cloneVoice, deleteVoice: deleteElevenLabsVoice } = require('../services/elevenlabs');
+const { cloneVoice, deleteVoice } = require('../services/fishAudio');
 const usersService = require('../services/usersService');
 
 const router = express.Router();
 
 // POST /api/voice/clone
-// Upload a voice sample and clone the voice via ElevenLabs.
+// Upload a voice sample and clone the voice via Fish Audio.
 // If the user already has a cloned voice, the old one is deleted first.
 router.post('/clone', auth, upload.single('voiceSample'), async (req, res, next) => {
   try {
@@ -21,7 +21,7 @@ router.post('/clone', auth, upload.single('voiceSample'), async (req, res, next)
     // Delete old cloned voice if exists
     if (user && user.voice_id) {
       try {
-        await deleteElevenLabsVoice(user.voice_id);
+        await deleteVoice(user.voice_id);
       } catch (e) {
         console.warn('Failed to delete old voice:', e.message);
       }
@@ -51,7 +51,7 @@ router.delete('/', auth, async (req, res) => {
       return res.status(404).json({ error: 'No cloned voice found' });
     }
 
-    await deleteElevenLabsVoice(user.voice_id);
+    await deleteVoice(user.voice_id);
     await usersService.deleteVoice(req.userId);
 
     res.json({ status: 'deleted' });
