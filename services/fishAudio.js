@@ -43,6 +43,7 @@ async function textToSpeech(voiceId, text) {
       reference_id: voiceId,
       format: 'mp3',
       mp3_bitrate: 128,
+      model: 'speech-1',
     },
     {
       headers: {
