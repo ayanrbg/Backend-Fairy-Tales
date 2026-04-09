@@ -163,15 +163,16 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
     const lang = req.query.lang || req.body.lang || 'ru';
     const taleId = req.params.id;
 
-    // Try DB first, fall back to client-provided pages (bundled tales)
-    const tale = await talesService.getTaleById(taleId, req.query.lang);
+    // Client pages take priority (already personalized), then DB
     let pages;
-    if (tale) {
-      pages = tale.pages;
-    } else if (clientPages && Array.isArray(clientPages) && clientPages.length > 0) {
+    if (clientPages && Array.isArray(clientPages) && clientPages.length > 0) {
       pages = clientPages;
     } else {
-      return res.status(404).json({ error: 'Tale not found and no pages provided' });
+      const tale = await talesService.getTaleById(taleId, lang);
+      if (!tale) {
+        return res.status(404).json({ error: 'Tale not found and no pages provided' });
+      }
+      pages = tale.pages;
     }
     const totalPages = pages.length;
 
