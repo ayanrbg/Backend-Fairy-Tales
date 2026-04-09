@@ -104,6 +104,24 @@ router.get('/drafts/:id', auth, async (req, res) => {
   }
 });
 
+// PUT /api/voice/drafts/:id
+router.put('/drafts/:id', auth, async (req, res) => {
+  try {
+    const { voiceId } = req.body;
+    if (!voiceId) {
+      return res.status(400).json({ error: 'voiceId is required' });
+    }
+    const draft = await draftsService.updateDraft(req.userId, req.params.id, { voiceId });
+    if (!draft) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+    res.json(draft);
+  } catch (err) {
+    console.error('Update draft error:', err.message);
+    res.status(500).json({ error: 'Failed to update draft' });
+  }
+});
+
 // DELETE /api/voice/drafts/:id
 router.delete('/drafts/:id', auth, async (req, res) => {
   try {

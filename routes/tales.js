@@ -155,15 +155,25 @@ router.post('/:id/personalize', auth, async (req, res) => {
 // Pass voice: "narrator" in body to use the professional narrator voice.
 router.post('/:id/narrate-all', auth, async (req, res) => {
   try {
-    const tale = await talesService.getTaleById(req.params.id, req.query.lang);
-    if (!tale) {
-      return res.status(404).json({ error: 'Tale not found' });
-    }
-
-    const { name, gender, voice } = req.body;
+    const { name, gender, voice, pages: clientPages } = req.body;
     if (!name || !gender) {
       return res.status(400).json({ error: 'name and gender are required' });
     }
+
+    const lang = req.query.lang || req.body.lang || 'ru';
+    const taleId = req.params.id;
+
+    // Try DB first, fall back to client-provided pages (bundled tales)
+    const tale = await talesService.getTaleById(taleId, req.query.lang);
+    let pages;
+    if (tale) {
+      pages = tale.pages;
+    } else if (clientPages && Array.isArray(clientPages) && clientPages.length > 0) {
+      pages = clientPages;
+    } else {
+      return res.status(404).json({ error: 'Tale not found and no pages provided' });
+    }
+    const totalPages = pages.length;
 
     let voiceType, voiceId;
     if (voice === 'narrator') {
@@ -177,14 +187,13 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
       voiceId = user.voice_id;
     }
 
-    const job = await narrationService.createJob(req.userId, tale.id, tale.totalPages);
+    const job = await narrationService.createJob(req.userId, taleId, totalPages);
 
     // Run narration in background
     const jobId = job.job_id;
-    const taleId = tale.id;
 
     // Personalize pages before narration
-    const personalizedPages = tale.pages.map((text) => {
+    const personalizedPages = pages.map((text) => {
       let result = text;
       result = result.replace(/\{childName\}/g, name);
       result = result.replace(/\{ChildName\}/g, name);
@@ -194,13 +203,11 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
       return result;
     });
 
-    const lang = req.query.lang || 'ru';
-
     (async () => {
       const jobDir = path.join(STORAGE_DIR, req.userId, taleId);
       fs.mkdirSync(jobDir, { recursive: true });
 
-      for (let i = 0; i < tale.totalPages; i++) {
+      for (let i = 0; i < totalPages; i++) {
         try {
           const audioBuffer = await textToSpeech({ text: personalizedPages[i], lang, voiceType, voiceId, gender: 'male' });
           fs.writeFileSync(path.join(jobDir, `${i}.mp3`), audioBuffer);

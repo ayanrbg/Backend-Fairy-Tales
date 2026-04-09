@@ -3,7 +3,7 @@ const pool = require('../db');
 async function listDrafts(userId) {
   const { rows } = await pool.query(
     `SELECT id, narrator_name AS "narratorName", tale_id AS "taleId",
-            last_page AS "lastPage", created_at AS "createdAt"
+            last_page AS "lastPage", voice_id AS "voiceId", created_at AS "createdAt"
      FROM drafts WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
@@ -39,4 +39,15 @@ async function deleteDraft(userId, draftId) {
   return rowCount > 0;
 }
 
-module.exports = { listDrafts, createDraft, getDraft, deleteDraft };
+async function updateDraft(userId, draftId, fields) {
+  const { rows } = await pool.query(
+    `UPDATE drafts SET voice_id = $3
+     WHERE id = $1 AND user_id = $2
+     RETURNING id, narrator_name AS "narratorName", tale_id AS "taleId",
+               last_page AS "lastPage", voice_id AS "voiceId", created_at AS "createdAt"`,
+    [draftId, userId, fields.voiceId]
+  );
+  return rows[0] || null;
+}
+
+module.exports = { listDrafts, createDraft, getDraft, deleteDraft, updateDraft };
