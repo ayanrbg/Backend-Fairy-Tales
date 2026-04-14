@@ -63,30 +63,36 @@ router.get('/:id', auth, async (req, res) => {
 // voice=narrator uses the professional narrator voice instead of user's cloned voice.
 router.post('/:id/narrate', auth, async (req, res) => {
   try {
-    const tale = await talesService.getTaleById(req.params.id, req.query.lang);
-    if (!tale) {
-      return res.status(404).json({ error: 'Tale not found' });
-    }
+    // Text from body takes priority (bundled tales send it from client)
+    let text = req.body?.text;
 
-    const page = parseInt(req.query.page, 10);
-    if (isNaN(page) || page < 0 || page >= tale.totalPages) {
-      return res.status(400).json({
-        error: `page parameter is required (0..${tale.totalPages - 1})`,
+    if (!text) {
+      // Fallback: load from DB (server-side tales)
+      const tale = await talesService.getTaleById(req.params.id, req.query.lang);
+      if (!tale) {
+        return res.status(404).json({ error: 'Tale not found' });
+      }
+
+      const page = parseInt(req.query.page, 10);
+      if (isNaN(page) || page < 0 || page >= tale.totalPages) {
+        return res.status(400).json({
+          error: `page parameter is required (0..${tale.totalPages - 1})`,
+        });
+      }
+
+      const { name, gender } = req.body || {};
+      if (!name || !gender) {
+        return res.status(400).json({ error: 'name and gender are required in request body' });
+      }
+
+      // Personalize page text
+      text = tale.pages[page];
+      text = text.replace(/\{childName\}/g, name);
+      text = text.replace(/\{ChildName\}/g, name);
+      text = text.replace(/\{m:([^|]+)\|f:([^}]+)\}/g, (_, m, f) => {
+        return gender === 'female' ? f : m;
       });
     }
-
-    const { name, gender } = req.body || {};
-    if (!name || !gender) {
-      return res.status(400).json({ error: 'name and gender are required in request body' });
-    }
-
-    // Personalize page text
-    let text = tale.pages[page];
-    text = text.replace(/\{childName\}/g, name);
-    text = text.replace(/\{ChildName\}/g, name);
-    text = text.replace(/\{m:([^|]+)\|f:([^}]+)\}/g, (_, m, f) => {
-      return gender === 'female' ? f : m;
-    });
 
     let audioBuffer;
     if (req.query.voice === 'narrator') {
