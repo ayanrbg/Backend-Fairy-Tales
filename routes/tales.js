@@ -214,13 +214,24 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
       const jobDir = path.join(STORAGE_DIR, req.userId, taleId);
       fs.mkdirSync(jobDir, { recursive: true });
 
-      for (let i = 0; i < totalPages; i++) {
+      const BATCH_SIZE = 5;
+      let pagesReady = 0;
+
+      for (let i = 0; i < totalPages; i += BATCH_SIZE) {
+        const batch = personalizedPages.slice(i, i + BATCH_SIZE).map((text, j) => ({
+          text,
+          index: i + j,
+        }));
+
         try {
-          const audioBuffer = await textToSpeech({ text: personalizedPages[i], lang, voiceType, voiceId, gender: 'male' });
-          fs.writeFileSync(path.join(jobDir, `${i}.mp3`), audioBuffer);
-          await narrationService.updateJobProgress(jobId, i + 1);
+          await Promise.all(batch.map(async (page) => {
+            const audioBuffer = await textToSpeech({ text: page.text, lang, voiceType, voiceId, gender: 'male' });
+            fs.writeFileSync(path.join(jobDir, `${page.index}.mp3`), audioBuffer);
+            pagesReady++;
+            await narrationService.updateJobProgress(jobId, pagesReady);
+          }));
         } catch (err) {
-          console.error(`Narrate-all page ${i} error:`, err.message);
+          console.error(`Narrate-all batch error:`, err.message);
           await narrationService.failJob(jobId);
           return;
         }
