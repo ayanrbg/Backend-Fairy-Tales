@@ -97,7 +97,8 @@ router.post('/:id/narrate', auth, async (req, res) => {
     let audioBuffer;
     if (req.query.voice === 'narrator') {
       const lang = req.query.lang || 'ru';
-      audioBuffer = await textToSpeech({ text, lang, voiceType: 'default', gender: 'male' });
+      const narratorGender = req.body.narratorGender === 'female' ? 'female' : 'male';
+      audioBuffer = await textToSpeech({ text, lang, voiceType: 'default', gender: narratorGender });
     } else {
       const user = await usersService.getUser(req.userId);
       if (!user || !user.voice_id) {
@@ -109,7 +110,7 @@ router.post('/:id/narrate', auth, async (req, res) => {
     res.set({
       'Content-Type': 'audio/mpeg',
       'Content-Length': audioBuffer.length,
-      'Content-Disposition': `attachment; filename="${tale.id}-${page}.mp3"`,
+      'Content-Disposition': `attachment; filename="${req.params.id}-${req.query.page || 0}.mp3"`,
     });
     res.send(audioBuffer);
   } catch (err) {
@@ -161,7 +162,7 @@ router.post('/:id/personalize', auth, async (req, res) => {
 // Pass voice: "narrator" in body to use the professional narrator voice.
 router.post('/:id/narrate-all', auth, async (req, res) => {
   try {
-    const { name, gender, voice, pages: clientPages } = req.body;
+    const { name, gender, voice, narratorGender: rawNarratorGender, pages: clientPages } = req.body;
     if (!name || !gender) {
       return res.status(400).json({ error: 'name and gender are required' });
     }
@@ -225,7 +226,8 @@ router.post('/:id/narrate-all', auth, async (req, res) => {
 
         try {
           await Promise.all(batch.map(async (page) => {
-            const audioBuffer = await textToSpeech({ text: page.text, lang, voiceType, voiceId, gender: 'male' });
+            const narGender = rawNarratorGender === 'female' ? 'female' : 'male';
+            const audioBuffer = await textToSpeech({ text: page.text, lang, voiceType, voiceId, gender: narGender });
             fs.writeFileSync(path.join(jobDir, `${page.index}.mp3`), audioBuffer);
             pagesReady++;
             await narrationService.updateJobProgress(jobId, pagesReady);

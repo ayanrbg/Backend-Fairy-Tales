@@ -219,10 +219,17 @@ Content-Type: application/json
 }
 ```
 
-**Запрос (дикторская озвучка):**
+**Запрос (дикторская озвучка, женский голос):**
 ```
 POST /api/tales/kolobok/narrate?page=0&voice=narrator
 Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Маша",
+  "gender": "female",
+  "narratorGender": "female"
+}
 ```
 
 **Ответ (200):**
@@ -247,7 +254,8 @@ Content-Disposition: attachment; filename="kolobok-0.mp3"
 |----------|--------|--------------|----------|
 | `text`   | string | нет          | Готовый текст для озвучки (bundled-сказки). Если передан — `page`, `name`, `gender` игнорируются, текст из БД не загружается |
 | `name`   | string | да (если нет `text`) | Имя ребёнка для персонализации |
-| `gender` | string | да (если нет `text`) | Пол: `"male"` или `"female"` |
+| `gender` | string | да (если нет `text`) | Пол ребёнка: `"male"` или `"female"` (для персонализации текста) |
+| `narratorGender` | string | нет | Пол голоса диктора: `"male"` или `"female"`. По умолчанию `"male"`. Работает только с `voice=narrator` |
 
 > При `voice=narrator` клонированный голос **не требуется** — можно использовать без предварительного клонирования.
 
@@ -423,7 +431,7 @@ Content-Type: application/json
 }
 ```
 
-**Запрос (дикторская озвучка):**
+**Запрос (дикторская озвучка, мужской голос):**
 ```
 POST /api/tales/kolobok/narrate-all
 Authorization: Bearer <token>
@@ -436,13 +444,28 @@ Content-Type: application/json
 }
 ```
 
+**Запрос (дикторская озвучка, женский голос):**
+```
+POST /api/tales/kolobok/narrate-all
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Маша",
+  "gender": "female",
+  "voice": "narrator",
+  "narratorGender": "female"
+}
+```
+
 **Параметры тела:**
 
 | Поле     | Тип    | Обязательный | Описание |
 |----------|--------|--------------|----------|
 | `name`   | string | да           | Имя ребёнка (для подстановки `{childName}`) |
-| `gender` | string | да           | Пол: `"male"` или `"female"` (для выбора в `{m:...\|f:...}`) |
+| `gender` | string | да           | Пол ребёнка: `"male"` или `"female"` (для персонализации текста `{m:...\|f:...}`) |
 | `voice`  | string | нет          | `"narrator"` — использовать дикторский голос. Если не указан — голос пользователя |
+| `narratorGender` | string | нет | Пол голоса диктора: `"male"` или `"female"`. По умолчанию `"male"`. Работает только с `voice: "narrator"` |
 
 > При `voice: "narrator"` клонированный голос **не требуется** — можно использовать без предварительного клонирования.
 
