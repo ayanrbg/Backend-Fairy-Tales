@@ -1,6 +1,8 @@
 require('dotenv').config();
 
 const express = require('express');
+const https = require('https');
+const fs = require('fs');
 const cors = require('cors');
 
 const authRoutes = require('./routes/auth');
@@ -30,6 +32,11 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Fairy Tales server running on port ${PORT}`);
+const server = https.createServer({
+  cert: fs.readFileSync('/etc/letsencrypt/live/bala-stories.apiapp.kz/fullchain.pem'),
+  key: fs.readFileSync('/etc/letsencrypt/live/bala-stories.apiapp.kz/privkey.pem'),
+}, app);
+
+server.listen(PORT, () => {
+  console.log(`Fairy Tales server running on HTTPS port ${PORT}`);
 });
