@@ -1,80 +1,112 @@
 const express = require('express');
-const apiKey = require('../middleware/apiKey');
+const axios = require('axios');
+const auth = require('../middleware/auth');
 const pool = require('../db');
 
 const router = express.Router();
 
+const PROMO_API_URL = process.env.PROMO_API_URL || 'https://promocode-stories.apiapp.kz/api/promo';
+const PROMO_API_KEY = process.env.PROMO_API_KEY;
+
 // POST /api/promo/check
-router.post('/check', apiKey, async (req, res) => {
+router.post('/check', auth, async (req, res) => {
   try {
-    const { code, externalUserId } = req.body;
+    const { code } = req.body;
+    const userId = req.userId;
 
-    if (!code || !externalUserId) {
-      return res.status(400).json({ error: 'code and externalUserId are required' });
+    if (!code) {
+      return res.status(400).json({ error: 'code is required' });
     }
 
-    const result = await pool.query(
-      'SELECT code, type, blogger_name, duration_days, used_by FROM promo_codes WHERE code = $1',
-      [code]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Промокод не найден' });
+    if (!PROMO_API_KEY) {
+      return res.status(503).json({ error: 'Promo service not configured' });
     }
 
-    const promo = result.rows[0];
+    const response = await axios.post(`${PROMO_API_URL}/check`, {
+      code,
+      externalUserId: String(userId),
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': PROMO_API_KEY,
+      },
+    });
 
-    if (promo.type === 'blogger') {
-      return res.json({ type: 'blogger', bloggerName: promo.blogger_name });
-    }
+    const data = response.data;
 
-    if (promo.type === 'premium') {
-      if (promo.used_by) {
-        return res.status(410).json({ error: 'Промокод уже использован' });
-      }
+    // Премиум-промокод — сразу активируем подписку
+    if (data.type === 'premium') {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + data.durationDays);
 
       await pool.query(
-        'UPDATE promo_codes SET used_by = $1, used_at = NOW() WHERE code = $2',
-        [externalUserId, code]
+        `INSERT INTO subscriptions (user_id, product_id, original_transaction_id, expires_at, platform, updated_at)
+         VALUES ($1, 'promo_premium', $2, $3, 'promo', NOW())
+         ON CONFLICT (user_id) DO UPDATE
+         SET product_id = 'promo_premium',
+             original_transaction_id = $2,
+             expires_at = GREATEST(subscriptions.expires_at, $3),
+             platform = 'promo',
+             updated_at = NOW()`,
+        [userId, `promo_${code}`, expiresAt]
       );
 
-      return res.json({ type: 'premium', durationDays: promo.duration_days });
+      return res.json({
+        type: 'premium',
+        durationDays: data.durationDays,
+        expiresAt,
+        message: `Премиум активирован на ${data.durationDays} дней`,
+      });
     }
+
+    // Блогер-промокод — возвращаем инфо клиенту
+    if (data.type === 'blogger') {
+      return res.json({
+        type: 'blogger',
+        bloggerName: data.bloggerName,
+        message: `Промокод блогера ${data.bloggerName} применён`,
+      });
+    }
+
+    return res.json(data);
   } catch (e) {
+    if (e.response) {
+      return res.status(e.response.status).json(e.response.data);
+    }
     console.error('Promo check error:', e.message);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // POST /api/promo/purchase
-router.post('/purchase', apiKey, async (req, res) => {
+router.post('/purchase', auth, async (req, res) => {
   try {
-    const { code, externalUserId } = req.body;
+    const { code } = req.body;
+    const userId = req.userId;
 
-    if (!code || !externalUserId) {
-      return res.status(400).json({ error: 'code and externalUserId are required' });
+    if (!code) {
+      return res.status(400).json({ error: 'code is required' });
     }
 
-    const result = await pool.query(
-      'SELECT type FROM promo_codes WHERE code = $1',
-      [code]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Промокод не найден' });
+    if (!PROMO_API_KEY) {
+      return res.status(503).json({ error: 'Promo service not configured' });
     }
 
-    if (result.rows[0].type !== 'blogger') {
-      return res.status(400).json({ error: 'Purchase tracking is only for blogger promo codes' });
-    }
+    const response = await axios.post(`${PROMO_API_URL}/purchase`, {
+      code,
+      externalUserId: String(userId),
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': PROMO_API_KEY,
+      },
+    });
 
-    await pool.query(
-      'INSERT INTO promo_purchases (code, external_user_id) VALUES ($1, $2)',
-      [code, externalUserId]
-    );
-
-    return res.json({ success: true });
+    return res.json(response.data);
   } catch (e) {
+    if (e.response) {
+      return res.status(e.response.status).json(e.response.data);
+    }
     console.error('Promo purchase error:', e.message);
     return res.status(500).json({ error: 'Internal server error' });
   }
