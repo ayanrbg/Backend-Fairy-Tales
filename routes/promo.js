@@ -30,6 +30,7 @@ router.post('/check', auth, async (req, res) => {
         'Content-Type': 'application/json',
         'X-API-Key': PROMO_API_KEY,
       },
+      timeout: 10000,
     });
 
     const data = response.data;
@@ -100,6 +101,7 @@ router.post('/purchase', auth, async (req, res) => {
         'Content-Type': 'application/json',
         'X-API-Key': PROMO_API_KEY,
       },
+      timeout: 10000,
     });
 
     return res.json(response.data);
