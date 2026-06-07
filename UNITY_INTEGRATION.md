@@ -14,8 +14,9 @@
 10. [Запись голоса с микрофона](#10-запись-голоса-с-микрофона)
 11. [Пример полного флоу](#11-пример-полного-флоу)
 12. [Гендерные иллюстрации](#12-гендерные-иллюстрации)
-13. [Обработка ошибок](#13-обработка-ошибок)
-14. [Советы по продакшену](#14-советы-по-продакшену)
+13. [Bundled vs серверные сказки](#13-bundled-vs-серверные-сказки)
+14. [Обработка ошибок](#14-обработка-ошибок)
+15. [Советы по продакшену](#15-советы-по-продакшену)
 
 ---
 
@@ -263,6 +264,10 @@ namespace FairyTales.Models
         public string id;
         public string title;
         public string lang;
+        public bool free;           // бесплатная ли сказка
+        public string coverUrl;
+        public bool bundled;        // true = иллюстрации встроены в клиент
+        public long downloadSize;   // размер скачивания в байтах (только если bundled=false)
     }
 
     // Обёртка для JsonUtility (не умеет парсить массив верхнего уровня)
@@ -278,8 +283,12 @@ namespace FairyTales.Models
         public string id;
         public string title;
         public string lang;
+        public bool free;
         public int totalPages;
         public string[] pages;
+        public int[] genderedPages; // страницы с boy/girl вариантами
+        public bool bundled;
+        public long downloadSize;
     }
 }
 ```
@@ -1146,7 +1155,162 @@ public string GetIllustrationUrl(string taleId, int page, string childGender)
 
 ---
 
-## 13. Обработка ошибок
+## 13. Bundled vs серверные сказки
+
+Иллюстрации сказок делятся на два типа:
+
+- **Bundled** (`bundled: true`) — встроены в билд Unity, скачивать не нужно
+- **Серверные** (`bundled: false`) — скачиваются с сервера по запросу
+
+### Какие сказки bundled
+
+| Сказка | ID | Bundled | Free |
+|---|---|---|---|
+| Золотое яичко | `golden_egg` | да | да |
+| Фархад | `farhad` | да | нет |
+| Баурсак | `baursak` | нет | да |
+| Одеялко | `odeyalko` | нет | да |
+| Волшебная птица | `magic_bird` | нет | нет |
+| Белый верблюжонок | `white_camel` | нет | нет |
+
+### Что изменилось в API
+
+**GET /api/tales?lang=ru** — новые поля в каждом элементе:
+
+```json
+{
+  "id": "magic_bird",
+  "title": "Волшебная птица",
+  "lang": "ru",
+  "free": false,
+  "coverUrl": "/api/tales/magic_bird/cover",
+  "bundled": false,
+  "downloadSize": 67378448
+}
+```
+
+| Поле | Тип | Описание |
+|---|---|---|
+| `free` | bool | `true` — сказка бесплатная, доступна без подписки |
+| `bundled` | bool | `true` — иллюстрации встроены в клиент |
+| `downloadSize` | long | Размер всех иллюстраций в байтах (оба пола). Только для `bundled: false`. Отсутствует для bundled-сказок |
+
+### Структура ассетов в Unity
+
+Для bundled-сказок иллюстрации хранятся локально:
+
+```
+Assets/
+└── StreamingAssets/
+    └── Illustrations/
+        ├── golden_egg/
+        │   ├── page_0_boy.jpg
+        │   ├── page_0_girl.jpg
+        │   ├── page_1_boy.jpg
+        │   └── ...
+        └── farhad/
+            ├── page_3_boy.jpg
+            ├── page_3_girl.jpg
+            └── ...
+```
+
+> Иллюстрации уже сжаты на сервере (2048px, JPEG q85, ~200-400 KB/файл). Берите их из папки `data/illustrations/golden_egg/` и `data/illustrations/farhad/` на сервере и кладите в StreamingAssets.
+
+### Логика загрузки иллюстраций
+
+```csharp
+public IEnumerator LoadIllustration(TaleDetail tale, int page, string childGender,
+                                     Action<Texture2D> onLoaded)
+{
+    if (tale.bundled)
+    {
+        // Bundled — загружаем из StreamingAssets
+        string gender = GetGenderSuffix(tale, page, childGender);
+        string fileName = gender != null
+            ? $"page_{page}_{gender}.jpg"
+            : $"page_{page}.jpg";
+        string path = Path.Combine(Application.streamingAssetsPath,
+                                    "Illustrations", tale.id, fileName);
+
+        using var request = UnityWebRequestTexture.GetTexture("file:///" + path);
+        yield return request.SendWebRequest();
+
+        if (request.result == UnityWebRequest.Result.Success)
+            onLoaded?.Invoke(DownloadHandlerTexture.GetContent(request));
+    }
+    else
+    {
+        // Серверная — скачиваем с API
+        string gender = GetGenderSuffix(tale, page, childGender);
+        string url = $"/api/tales/{tale.id}/illustration/{page}";
+        if (gender != null) url += $"?gender={gender}";
+
+        yield return _api.GetTexture(url, onLoaded);
+    }
+}
+
+private string GetGenderSuffix(TaleDetail tale, int page, string childGender)
+{
+    if (tale.genderedPages != null &&
+        System.Array.IndexOf(tale.genderedPages, page) >= 0)
+    {
+        return childGender == "female" ? "girl" : "boy";
+    }
+    return null;
+}
+```
+
+### UI списка сказок
+
+При отображении списка сказок используй поля для UI:
+
+```csharp
+foreach (var tale in talesList)
+{
+    // Показать замок если не free и нет подписки
+    bool locked = !tale.free && !hasSubscription;
+
+    // Показать размер скачивания если не bundled
+    if (!tale.bundled && tale.downloadSize > 0)
+    {
+        string sizeMB = (tale.downloadSize / 1024f / 1024f).ToString("F1") + " MB";
+        // Показать кнопку "Скачать (52.4 MB)" или прогресс-бар
+    }
+
+    // Bundled сказки — иконка "готово", можно открыть сразу
+}
+```
+
+### Кэширование скачанных иллюстраций
+
+Серверные сказки скачиваются постранично. Рекомендуется кэшировать на диск:
+
+```csharp
+string cacheDir = Path.Combine(Application.persistentDataPath, "illustrations", taleId);
+string cachedFile = Path.Combine(cacheDir, $"page_{page}_{gender}.jpg");
+
+if (File.Exists(cachedFile))
+{
+    // Загрузить из кэша
+}
+else
+{
+    // Скачать с сервера, сохранить в cachedFile
+}
+```
+
+### Размеры скачивания (ориентировочно)
+
+| Сказка | Страниц | Размер (оба пола) |
+|---|---|---|
+| baursak | 72 | 52 MB |
+| odeyalko | 81 | 52 MB |
+| magic_bird | 115 | 64 MB |
+| white_camel | 47 | 39 MB |
+
+---
+
+## 14. Обработка ошибок
 
 ### Типичные ошибки от сервера
 
@@ -1181,7 +1345,7 @@ private IEnumerator SafeRequest(IEnumerator request, System.Action retry)
 
 ---
 
-## 14. Советы по продакшену
+## 15. Советы по продакшену
 
 ### Кэширование аудио
 
