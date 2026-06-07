@@ -11,6 +11,8 @@ const pool = require('./index');
 
 const TALES_DIR = path.join(__dirname, '..', 'data', 'tales');
 
+const FREE_TALES = new Set(['golden_egg', 'baursak', 'odeyalko']);
+
 async function seed() {
   // 1. Create tables
   const initSQL = fs.readFileSync(path.join(__dirname, 'init.sql'), 'utf-8');
@@ -27,12 +29,13 @@ async function seed() {
     const filePath = path.join(TALES_DIR, entry.file);
     const tale = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
+    const isFree = FREE_TALES.has(tale.id);
     await pool.query(
-      `INSERT INTO tales (slug, title, lang, pages)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO tales (slug, title, lang, pages, free)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (slug, lang) DO UPDATE
-       SET title = EXCLUDED.title, pages = EXCLUDED.pages`,
-      [tale.id, tale.title, tale.lang, JSON.stringify(tale.pages)]
+       SET title = EXCLUDED.title, pages = EXCLUDED.pages, free = EXCLUDED.free`,
+      [tale.id, tale.title, tale.lang, JSON.stringify(tale.pages), isFree]
     );
 
     console.log(`  Seeded: ${tale.id} (${tale.lang})`);

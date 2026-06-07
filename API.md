@@ -123,18 +123,21 @@ Authorization: Bearer <token>
 ```json
 [
   {
-    "id": "kolobok",
-    "title": "Колобок",
-    "lang": "ru",
-    "free": false,
-    "coverUrl": "/api/tales/kolobok/cover"
-  },
-  {
-    "id": "teremok",
-    "title": "Теремок",
+    "id": "golden_egg",
+    "title": "Золотое яичко",
     "lang": "ru",
     "free": true,
-    "coverUrl": "/api/tales/teremok/cover"
+    "coverUrl": "/api/tales/golden_egg/cover",
+    "bundled": true
+  },
+  {
+    "id": "magic_bird",
+    "title": "Волшебная птица",
+    "lang": "ru",
+    "free": false,
+    "coverUrl": "/api/tales/magic_bird/cover",
+    "bundled": false,
+    "downloadSize": 62286577
   }
 ]
 ```
@@ -146,6 +149,8 @@ Authorization: Bearer <token>
 | `lang` | string | Код языка (`ru`, `en`, `kz`, `uz`) |
 | `free` | boolean | Бесплатная ли сказка |
 | `coverUrl` | string | URL для загрузки обложки |
+| `bundled` | boolean | `true` — иллюстрации встроены в клиент, загрузка не требуется |
+| `downloadSize` | number | Размер иллюстраций в байтах (только для `bundled: false`). Включает обе версии (boy + girl). Отсутствует если `bundled: true` |
 
 ---
 
@@ -169,22 +174,32 @@ Authorization: Bearer <token>
   "id": "kolobok",
   "title": "Колобок",
   "lang": "ru",
+  "free": true,
   "totalPages": 4,
+  "bundled": false,
+  "downloadSize": 0,
   "pages": [
     "Жили-были старик со старухой. Вот и просит старик: «Испеки мне, старая, колобок».",
     "Старуха наскребла муки, замесила тесто на сметане, скатала колобок, изжарила в масле и положила на окошко остудить.",
     "Колобок полежал-полежал, да вдруг и покатился — с окна на лавку, с лавки на пол, по полу да к двери...",
     "Катится колобок по дороге, а навстречу ему заяц: «Колобок, колобок! Я тебя съем!»"
-  ]
+  ],
+  "genderedPages": [2, 5]
 }
 ```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `genderedPages` | int[] | Номера страниц, для которых есть гендерные варианты иллюстраций (`page_N_boy` / `page_N_girl`). Пустой массив если вариантов нет. Клиент использует этот массив, чтобы знать для каких страниц добавлять `?gender=boy` или `?gender=girl` при запросе иллюстраций. |
+| `bundled` | boolean | `true` — иллюстрации встроены в клиент |
+| `downloadSize` | number | Размер иллюстраций в байтах (только для `bundled: false`) |
 
 **Ошибка (404):**
 ```json
 { "error": "Tale not found" }
 ```
 
-> **Логика в приложении:** отображать `pages[currentIndex]` на экране, кнопки «назад/вперёд» переключают индекс от `0` до `totalPages - 1`.
+> **Логика в приложении:** отображать `pages[currentIndex]` на экране, кнопки «назад/вперёд» переключают индекс от `0` до `totalPages - 1`. Для иллюстраций: если номер страницы есть в `genderedPages`, добавлять `?gender=boy` или `?gender=girl` к запросу иллюстрации.
 
 ---
 
@@ -691,11 +706,13 @@ Content-Length: 45231
 
 ## 20. Иллюстрация страницы
 
-Возвращает иллюстрацию для конкретной страницы. Иллюстрации **не зависят от языка** — одни и те же картинки.
+Возвращает иллюстрацию для конкретной страницы. Иллюстрации **не зависят от языка** — одни и те же картинки. Поддерживает гендерные варианты (разные картинки для мальчиков и девочек).
 
 **Запрос:**
 ```
 GET /api/tales/kolobok/illustration/0
+GET /api/tales/kolobok/illustration/2?gender=boy
+GET /api/tales/kolobok/illustration/2?gender=girl
 Authorization: Bearer <token>
 ```
 
@@ -705,6 +722,17 @@ Authorization: Bearer <token>
 |----------|-----|-------|----------|
 | `id` | string | да | ID сказки |
 | `page` | int | да | Индекс страницы (0 .. totalPages-1) |
+
+**Query-параметры:**
+
+| Параметр | Тип | Обяз. | Описание |
+|----------|-----|-------|----------|
+| `gender` | string | нет | `"boy"` или `"girl"`. Если передан — сервер ищет `page_N_boy.{ext}` / `page_N_girl.{ext}`. Если не найден или не передан — fallback на общую `page_N.{ext}` |
+
+**Логика поиска файла:**
+1. Если `gender` передан → искать `page_N_boy.{ext}` или `page_N_girl.{ext}`
+2. Если гендерный вариант не найден или `gender` не передан → fallback на `page_N.{ext}`
+3. Если ничего не найдено → 404
 
 **Ответ (200):**
 ```
@@ -719,6 +747,9 @@ Content-Length: 128450
 ```json
 // 400 — невалидный номер страницы
 { "error": "Invalid page number" }
+
+// 400 — невалидное значение gender
+{ "error": "gender must be \"boy\" or \"girl\"" }
 
 // 404 — иллюстрация не найдена
 { "error": "Illustration not found: kolobok page 5" }

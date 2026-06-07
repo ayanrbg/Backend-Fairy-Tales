@@ -137,3 +137,6 @@ dist
 
 # Narration audio storage
 storage/
+
+# Cached data
+data/.jpeg-cache/

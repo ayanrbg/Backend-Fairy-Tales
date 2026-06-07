@@ -1,8 +1,36 @@
 [
-  { "id": "kolobok",     "title": "Колобок",     "lang": "ru", "file": "ru/kolobok.json" },
-  { "id": "teremok",     "title": "Теремок",     "lang": "ru", "file": "ru/teremok.json" },
-  { "id": "three-bears", "title": "Three Bears",  "lang": "en", "file": "en/three-bears.json" },
-  { "id": "white-camel", "title": "Oq tuya bolasi",  "lang": "uz", "file": "uz/white_camel.json" },
-  { "id": "white-camel", "title": "Ақ бота",  "lang": "kz", "file": "kz/white_camel.json" },
-  { "id": "white-camel", "title": "Белый верблюжонок",  "lang": "ru", "file": "ru/white-camel.json" }
+  { "id": "kolobok",      "title": "Колобок",                "lang": "ru", "file": "ru/kolobok.json" },
+  { "id": "teremok",      "title": "Теремок",                "lang": "ru", "file": "ru/teremok.json" },
+  { "id": "three-bears",  "title": "Three Bears",            "lang": "en", "file": "en/three-bears.json" },
+  { "id": "white-camel",  "title": "Oq tuya bolasi",         "lang": "uz", "file": "uz/white_camel.json" },
+  { "id": "white-camel",  "title": "Ақ бота",                "lang": "kz", "file": "kz/white_camel.json" },
+  { "id": "white-camel",  "title": "Белый верблюжонок",      "lang": "ru", "file": "ru/white-camel.json" },
+
+  { "id": "baursak",      "title": "Баурсак",                "lang": "ru", "file": "ru/baursak_ru.json" },
+  { "id": "baursak",      "title": "Баурсақ",                "lang": "kz", "file": "kz/baursak_kz.json" },
+  { "id": "baursak",      "title": "Baursaq",                "lang": "uz", "file": "uz/baursak_uz.json" },
+
+  { "id": "farhad",       "title": "Как Фархад и ГГ Сыр-Дарью поворачивали", "lang": "ru", "file": "ru/farhad_and_gg.json" },
+  { "id": "farhad",       "title": "Фархад пен {childName} Сырдарияны қалай бұрды", "lang": "kz", "file": "kz/farhad_and_gg_kk.json" },
+  { "id": "farhad",       "title": "Farhod va {childName} Sirdaryoni qanday burdi", "lang": "uz", "file": "uz/farhad_and_gg_uz.json" },
+
+  { "id": "golden_egg",   "title": "Золотое яичко",          "lang": "ru", "file": "ru/golden_egg_ru.json" },
+  { "id": "golden_egg",   "title": "Алтын жұмыртқа",         "lang": "kz", "file": "kz/golden_egg_kz.json" },
+  { "id": "golden_egg",   "title": "Oltin tuxum",            "lang": "uz", "file": "uz/golden_egg_uz.json" },
+
+  { "id": "magic_bird",   "title": "Волшебная птица",        "lang": "ru", "file": "ru/magic_bird_ru.json" },
+  { "id": "magic_bird",   "title": "Сиқырлы құс",            "lang": "kz", "file": "kz/magic_bird_kz.json" },
+  { "id": "magic_bird",   "title": "Sehrli qush",            "lang": "uz", "file": "uz/magic_bird_uz.json" },
+
+  { "id": "odeyalko",     "title": "Одеялко",                "lang": "ru", "file": "ru/odyeyalko.json" },
+  { "id": "odeyalko",     "title": "Көрпежан",               "lang": "kz", "file": "kz/odyeyalko_kz.json" },
+  { "id": "odeyalko",     "title": "Ko'rpajon",              "lang": "uz", "file": "uz/odyeyalko_uz.json" },
+
+  { "id": "old_books",    "title": "Старые книги",           "lang": "ru", "file": "ru/old_books_ru.json" },
+  { "id": "old_books",    "title": "Ескі кітаптар",          "lang": "kz", "file": "kz/old_books_kz.json" },
+  { "id": "old_books",    "title": "Eski kitoblar",          "lang": "uz", "file": "uz/old_books_uz.json" },
+
+  { "id": "three_batyrs", "title": "Три батыра и мудрый {childName}", "lang": "ru", "file": "ru/three_batyrs.json" },
+  { "id": "three_batyrs", "title": "Үш батыр және {childName}", "lang": "kz", "file": "kz/three_batyrs_kz.json" },
+  { "id": "three_batyrs", "title": "Uch botir va {childName}",  "lang": "uz", "file": "uz/three_batyrs_uz.json" }
 ]
