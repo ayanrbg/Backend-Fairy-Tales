@@ -28,6 +28,19 @@ function findAsset(basePath, extensions = ['.webp', '.jpg', '.png']) {
   return null;
 }
 
+// Scan illustrations folder and return page numbers that have _boy/_girl variants
+function getGenderedPages(taleId) {
+  const dir = path.join(DATA_DIR, 'illustrations', taleId);
+  if (!fs.existsSync(dir)) return [];
+  const files = fs.readdirSync(dir);
+  const pages = new Set();
+  for (const f of files) {
+    const m = f.match(/^page_(\d+)_(?:boy|girl)\./);
+    if (m) pages.add(parseInt(m[1]));
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
 // GET /api/tales?lang=ru
 // Returns list of available tales.
 router.get('/', auth, async (req, res) => {
@@ -50,6 +63,8 @@ router.get('/:id', auth, async (req, res) => {
     if (!tale) {
       return res.status(404).json({ error: 'Tale not found' });
     }
+
+    tale.genderedPages = getGenderedPages(req.params.id);
 
     res.json(tale);
   } catch (err) {
@@ -318,7 +333,20 @@ router.get('/:id/illustration/:page', auth, (req, res) => {
   if (isNaN(page) || page < 0) {
     return res.status(400).json({ error: 'Invalid page number' });
   }
-  const filePath = findAsset(path.join(DATA_DIR, 'illustrations', req.params.id, `page_${page}`));
+
+  const gender = req.query.gender;
+  if (gender && gender !== 'boy' && gender !== 'girl') {
+    return res.status(400).json({ error: 'gender must be "boy" or "girl"' });
+  }
+
+  let filePath = null;
+  if (gender) {
+    filePath = findAsset(path.join(DATA_DIR, 'illustrations', req.params.id, `page_${page}_${gender}`));
+  }
+  if (!filePath) {
+    filePath = findAsset(path.join(DATA_DIR, 'illustrations', req.params.id, `page_${page}`));
+  }
+
   if (!filePath) {
     return res.status(404).json({ error: `Illustration not found: ${req.params.id} page ${page}` });
   }

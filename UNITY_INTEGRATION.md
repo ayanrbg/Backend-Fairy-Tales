@@ -9,11 +9,13 @@
 5. [Сервис аутентификации](#5-сервис-аутентификации)
 6. [Сервис голоса](#6-сервис-голоса)
 7. [Сервис сказок](#7-сервис-сказок)
-8. [Воспроизведение озвучки](#8-воспроизведение-озвучки)
-9. [Запись голоса с микрофона](#9-запись-голоса-с-микрофона)
-10. [Пример полного флоу](#10-пример-полного-флоу)
-11. [Обработка ошибок](#11-обработка-ошибок)
-12. [Советы по продакшену](#12-советы-по-продакшену)
+8. [Сервис промокодов](#8-сервис-промокодов)
+9. [Воспроизведение озвучки](#9-воспроизведение-озвучки)
+10. [Запись голоса с микрофона](#10-запись-голоса-с-микрофона)
+11. [Пример полного флоу](#11-пример-полного-флоу)
+12. [Гендерные иллюстрации](#12-гендерные-иллюстрации)
+13. [Обработка ошибок](#13-обработка-ошибок)
+14. [Советы по продакшену](#14-советы-по-продакшену)
 
 ---
 
@@ -27,9 +29,11 @@ Unity Game (C#)
     │                      DELETE /api/voice
     ├─ TalesService      → GET  /api/tales?lang=ru
     │                      GET  /api/tales/:id
-    └─ NarrationService  → POST /api/tales/:id/narrate?page=N
-                             ↓
-                        AudioSource.Play()
+    ├─ NarrationService  → POST /api/tales/:id/narrate?page=N
+    │                         ↓
+    │                    AudioSource.Play()
+    └─ PromoService      → POST /api/promo/check
+                           POST /api/promo/purchase
 ```
 
 **Сервер:** `http://localhost:3000` (или ваш продакшен-адрес)
@@ -48,11 +52,13 @@ Assets/
         │   ├── ApiClient.cs          // Базовый HTTP-клиент
         │   ├── AuthService.cs        // Аутентификация
         │   ├── VoiceService.cs       // Клонирование голоса
-        │   └── TalesService.cs       // Сказки и озвучка
+        │   ├── TalesService.cs       // Сказки и озвучка
+        │   └── PromoService.cs       // Промокоды
         ├── Models/
         │   ├── AuthModels.cs         // DTO аутентификации
         │   ├── VoiceModels.cs        // DTO голоса
-        │   └── TaleModels.cs         // DTO сказок
+        │   ├── TaleModels.cs         // DTO сказок
+        │   └── PromoModels.cs        // DTO промокодов
         ├── Audio/
         │   ├── MicRecorder.cs        // Запись с микрофона
         │   └── NarrationPlayer.cs    // Воспроизведение озвучки
@@ -274,6 +280,42 @@ namespace FairyTales.Models
         public string lang;
         public int totalPages;
         public string[] pages;
+    }
+}
+```
+
+```csharp
+// Assets/Scripts/FairyTales/Models/PromoModels.cs
+using System;
+
+namespace FairyTales.Models
+{
+    [Serializable]
+    public class PromoCheckRequest
+    {
+        public string code;
+    }
+
+    [Serializable]
+    public class PromoCheckResponse
+    {
+        public string type;        // "blogger" или "premium"
+        public string bloggerName; // только для type === "blogger"
+        public int durationDays;   // только для type === "premium"
+        public string expiresAt;   // только для type === "premium"
+        public string message;
+    }
+
+    [Serializable]
+    public class PromoErrorResponse
+    {
+        public string error;
+    }
+
+    [Serializable]
+    public class PromoPurchaseResponse
+    {
+        public bool success;
     }
 }
 ```
@@ -502,7 +544,81 @@ TaleSummary[] tales = wrapped.items;
 
 ---
 
-## 8. Воспроизведение озвучки
+## 8. Сервис промокодов
+
+```csharp
+// Assets/Scripts/FairyTales/Api/PromoService.cs
+using System;
+using System.Collections;
+using FairyTales.Models;
+using UnityEngine;
+
+namespace FairyTales.Api
+{
+    public class PromoService
+    {
+        private readonly ApiClient _api;
+
+        public PromoService(ApiClient api)
+        {
+            _api = api;
+        }
+
+        /// <summary>
+        /// Проверить промокод. Для премиум-кодов подписка активируется автоматически на сервере.
+        /// </summary>
+        public IEnumerator CheckPromo(string code,
+                                       Action<PromoCheckResponse> onSuccess,
+                                       Action<string> onError = null)
+        {
+            var body = JsonUtility.ToJson(new PromoCheckRequest { code = code });
+
+            yield return _api.PostJson("/api/promo/check", body,
+                json =>
+                {
+                    var response = JsonUtility.FromJson<PromoCheckResponse>(json);
+                    Debug.Log($"Promo check: {response.type} — {response.message}");
+                    onSuccess?.Invoke(response);
+                },
+                onError
+            );
+        }
+
+        /// <summary>
+        /// Зафиксировать покупку по блогерскому промокоду.
+        /// Вызывать ТОЛЬКО для type === "blogger" после успешной оплаты.
+        /// </summary>
+        public IEnumerator ReportPurchase(string code,
+                                           Action<PromoPurchaseResponse> onSuccess,
+                                           Action<string> onError = null)
+        {
+            var body = JsonUtility.ToJson(new PromoCheckRequest { code = code });
+
+            yield return _api.PostJson("/api/promo/purchase", body,
+                json =>
+                {
+                    var response = JsonUtility.FromJson<PromoPurchaseResponse>(json);
+                    Debug.Log("Promo purchase reported");
+                    onSuccess?.Invoke(response);
+                },
+                onError
+            );
+        }
+    }
+}
+```
+
+### Логика на клиенте
+
+| Тип ответа | Действие |
+|---|---|
+| `type === "premium"` | Подписка уже активирована на сервере. Показать `message`, обновить статус подписки (дата окончания в `expiresAt`). Вызывать `/purchase` **не нужно**. |
+| `type === "blogger"` | Показать `message`, запомнить `code`. После успешной оплаты подписки вызвать `ReportPurchase(code)`. |
+| Ошибка (400/404/410) | Распарсить `PromoErrorResponse`, показать `error` пользователю. |
+
+---
+
+## 9. Воспроизведение озвучки
 
 ```csharp
 // Assets/Scripts/FairyTales/Audio/NarrationPlayer.cs
@@ -574,7 +690,7 @@ namespace FairyTales.Audio
 
 ---
 
-## 9. Запись голоса с микрофона
+## 10. Запись голоса с микрофона
 
 ```csharp
 // Assets/Scripts/FairyTales/Audio/MicRecorder.cs
@@ -689,7 +805,7 @@ namespace FairyTales.Audio
 
 ---
 
-## 10. Пример полного флоу
+## 11. Пример полного флоу
 
 ```csharp
 // Assets/Scripts/FairyTales/FairyTaleManager.cs
@@ -715,18 +831,21 @@ namespace FairyTales
         private AuthService _auth;
         private VoiceService _voice;
         private TalesService _tales;
+        private PromoService _promo;
 
         // Текущее состояние
         private TaleSummary[] _talesList;
         private TaleDetail _currentTale;
         private int _currentPage;
         private bool _hasVoice;
+        private string _appliedBloggerCode; // запомненный блогерский промокод
 
         private void Start()
         {
             _auth = new AuthService(apiClient);
             _voice = new VoiceService(apiClient);
             _tales = new TalesService(apiClient);
+            _promo = new PromoService(apiClient);
 
             // Попробовать восстановить сессию
             if (!_auth.TryRestoreSession())
@@ -886,6 +1005,59 @@ namespace FairyTales
         }
 
         // ══════════════════════════════════════════════════════
+        //  6. ПРОМОКОДЫ
+        // ══════════════════════════════════════════════════════
+
+        /// <summary>Применить промокод (кнопка "Применить")</summary>
+        public void ApplyPromoCode(string code)
+        {
+            StartCoroutine(PromoCheckFlow(code));
+        }
+
+        private IEnumerator PromoCheckFlow(string code)
+        {
+            yield return _promo.CheckPromo(code,
+                response =>
+                {
+                    if (response.type == "premium")
+                    {
+                        // Подписка уже активирована на сервере
+                        Debug.Log($"Premium activated: {response.message}, expires: {response.expiresAt}");
+                        // TODO: обновить UI подписки
+                    }
+                    else if (response.type == "blogger")
+                    {
+                        // Запоминаем код — отправим при покупке
+                        _appliedBloggerCode = code;
+                        Debug.Log($"Blogger promo applied: {response.message}");
+                        // TODO: показать сообщение в UI
+                    }
+                },
+                err => Debug.LogError($"Promo error: {err}")
+            );
+        }
+
+        /// <summary>
+        /// Вызвать после успешной оплаты подписки, если был применён блогерский промокод.
+        /// </summary>
+        public void ReportPurchaseIfNeeded()
+        {
+            if (string.IsNullOrEmpty(_appliedBloggerCode)) return;
+            StartCoroutine(PurchaseFlow());
+        }
+
+        private IEnumerator PurchaseFlow()
+        {
+            string code = _appliedBloggerCode;
+            _appliedBloggerCode = null;
+
+            yield return _promo.ReportPurchase(code,
+                response => Debug.Log("Purchase reported to promo system"),
+                err => Debug.LogError($"Purchase report error: {err}")
+            );
+        }
+
+        // ══════════════════════════════════════════════════════
         //  ПУБЛИЧНЫЕ СВОЙСТВА ДЛЯ UI
         // ══════════════════════════════════════════════════════
 
@@ -916,10 +1088,65 @@ namespace FairyTales
    - "Слушать" → `NarrateCurrentPage()`
    - "Далее" → `NextPage()`
    - "Назад" → `PreviousPage()`
+   - "Применить промокод" → `ApplyPromoCode(inputField.text)`
+   - После успешной оплаты → `ReportPurchaseIfNeeded()`
 
 ---
 
-## 11. Обработка ошибок
+## 12. Гендерные иллюстрации
+
+Некоторые страницы имеют разные иллюстрации для мальчиков и девочек (например, где ребёнок изображён на картинке). Сервер сообщает, какие страницы имеют варианты, через поле `genderedPages` в ответе `GET /api/tales/:id`.
+
+### Как это работает
+
+1. При загрузке сказки (`GET /api/tales/:id`) ответ содержит `genderedPages: [2, 5, 12]` — номера страниц с гендерными вариантами
+2. Для этих страниц клиент добавляет `?gender=boy` или `?gender=girl` к запросу иллюстрации
+3. Для остальных страниц запрос без параметра — как обычно
+
+### Пример использования
+
+```csharp
+// В TaleDetail добавить поле:
+[Serializable]
+public class TaleDetail
+{
+    public string id;
+    public string title;
+    public string lang;
+    public int totalPages;
+    public string[] pages;
+    public int[] genderedPages; // страницы с гендерными иллюстрациями
+}
+
+// При загрузке иллюстрации:
+public string GetIllustrationUrl(string taleId, int page, string childGender)
+{
+    string url = $"/api/tales/{taleId}/illustration/{page}";
+
+    // Если страница имеет гендерные варианты — добавить параметр
+    if (_currentTale.genderedPages != null &&
+        System.Array.IndexOf(_currentTale.genderedPages, page) >= 0)
+    {
+        string gender = childGender == "female" ? "girl" : "boy";
+        url += $"?gender={gender}";
+    }
+
+    return url;
+}
+```
+
+### Маппинг пола
+
+| Профиль (`gender`) | Параметр иллюстрации (`?gender=`) |
+|---|---|
+| `"male"` | `boy` |
+| `"female"` | `girl` |
+
+> **Fallback:** если `?gender=` передан, но гендерный вариант файла не найден на сервере — автоматически вернётся общая иллюстрация. Это безопасно.
+
+---
+
+## 13. Обработка ошибок
 
 ### Типичные ошибки от сервера
 
@@ -929,6 +1156,8 @@ namespace FairyTales
 | 400 `"No cloned voice..."` | Голос не клонирован | Показать экран записи голоса |
 | 400 `"page parameter..."` | Неверный номер страницы | Проверить диапазон `0..totalPages-1` |
 | 404 | Сказка не найдена | Обновить список сказок |
+| 404 `"Промокод не найден"` | Неверный промокод | Показать ошибку пользователю |
+| 410 `"Промокод уже использован"` | Премиум-код уже активирован | Показать ошибку пользователю |
 | 502 | Ошибка ElevenLabs API | Показать "Попробуйте позже" |
 
 ### Пример обработки 401 с авто-повтором
@@ -952,7 +1181,7 @@ private IEnumerator SafeRequest(IEnumerator request, System.Action retry)
 
 ---
 
-## 12. Советы по продакшену
+## 14. Советы по продакшену
 
 ### Кэширование аудио
 
