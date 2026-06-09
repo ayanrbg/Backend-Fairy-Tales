@@ -10,13 +10,13 @@
   { "id": "baursak",      "title": "Баурсақ",                "lang": "kz", "file": "kz/baursak_kz.json" },
   { "id": "baursak",      "title": "Baursaq",                "lang": "uz", "file": "uz/baursak_uz.json" },
 
-  { "id": "farhad",       "title": "Как Фархад и ГГ Сыр-Дарью поворачивали", "lang": "ru", "file": "ru/farhad_and_gg.json" },
-  { "id": "farhad",       "title": "Фархад пен {childName} Сырдарияны қалай бұрды", "lang": "kz", "file": "kz/farhad_and_gg_kk.json" },
-  { "id": "farhad",       "title": "Farhod va {childName} Sirdaryoni qanday burdi", "lang": "uz", "file": "uz/farhad_and_gg_uz.json" },
+  { "id": "farhad",       "title": "Фархад", "lang": "ru", "file": "ru/farhad_and_gg.json" },
+  { "id": "farhad",       "title": "Фархад", "lang": "kz", "file": "kz/farhad_and_gg_kk.json" },
+  { "id": "farhad",       "title": "Farhod", "lang": "uz", "file": "uz/farhad_and_gg_uz.json" },
 
-  { "id": "golden_egg",   "title": "Золотое яичко",          "lang": "ru", "file": "ru/golden_egg_ru.json" },
-  { "id": "golden_egg",   "title": "Алтын жұмыртқа",         "lang": "kz", "file": "kz/golden_egg_kz.json" },
-  { "id": "golden_egg",   "title": "Oltin tuxum",            "lang": "uz", "file": "uz/golden_egg_uz.json" },
+  { "id": "golden_egg",   "title": "Курочка Ряба",          "lang": "ru", "file": "ru/golden_egg_ru.json" },
+  { "id": "golden_egg",   "title": "Алтын тауық",         "lang": "kz", "file": "kz/golden_egg_kz.json" },
+  { "id": "golden_egg",   "title": "Oltin tovuq",            "lang": "uz", "file": "uz/golden_egg_uz.json" },
 
   { "id": "magic_bird",   "title": "Волшебная птица",        "lang": "ru", "file": "ru/magic_bird_ru.json" },
   { "id": "magic_bird",   "title": "Сиқырлы құс",            "lang": "kz", "file": "kz/magic_bird_kz.json" },
@@ -30,7 +30,7 @@
   { "id": "old_books",    "title": "Ескі кітаптар",          "lang": "kz", "file": "kz/old_books_kz.json" },
   { "id": "old_books",    "title": "Eski kitoblar",          "lang": "uz", "file": "uz/old_books_uz.json" },
 
-  { "id": "three_batyrs", "title": "Три батыра и мудрый {childName}", "lang": "ru", "file": "ru/three_batyrs.json" },
-  { "id": "three_batyrs", "title": "Үш батыр және {childName}", "lang": "kz", "file": "kz/three_batyrs_kz.json" },
-  { "id": "three_batyrs", "title": "Uch botir va {childName}",  "lang": "uz", "file": "uz/three_batyrs_uz.json" }
+  { "id": "three_batyrs", "title": "Три батыра", "lang": "ru", "file": "ru/three_batyrs.json" },
+  { "id": "three_batyrs", "title": "Үш батыр", "lang": "kz", "file": "kz/three_batyrs_kz.json" },
+  { "id": "three_batyrs", "title": "Uch botir",  "lang": "uz", "file": "uz/three_batyrs_uz.json" }
 ]
