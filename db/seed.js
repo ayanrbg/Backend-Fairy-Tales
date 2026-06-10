@@ -11,7 +11,7 @@ const pool = require('./index');
 
 const TALES_DIR = path.join(__dirname, '..', 'data', 'tales');
 
-const FREE_TALES = new Set(['golden_egg', 'baursak', 'odeyalko']);
+const FREE_TALES = new Set(['golden_egg']);
 
 async function seed() {
   // 1. Create tables

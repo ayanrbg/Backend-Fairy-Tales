@@ -1,7 +1,4 @@
 [
-  { "id": "kolobok",      "title": "Колобок",                "lang": "ru", "file": "ru/kolobok.json" },
-  { "id": "teremok",      "title": "Теремок",                "lang": "ru", "file": "ru/teremok.json" },
-  { "id": "three-bears",  "title": "Three Bears",            "lang": "en", "file": "en/three-bears.json" },
   { "id": "white-camel",  "title": "Oq tuya bolasi",         "lang": "uz", "file": "uz/white_camel.json" },
   { "id": "white-camel",  "title": "Ақ бота",                "lang": "kz", "file": "kz/white_camel.json" },
   { "id": "white-camel",  "title": "Белый верблюжонок",      "lang": "ru", "file": "ru/white-camel.json" },
