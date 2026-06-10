@@ -25,6 +25,7 @@ router.post('/check', auth, async (req, res) => {
     const response = await axios.post(`${PROMO_API_URL}/check`, {
       code,
       externalUserId: String(userId),
+      app: 'BALA_STORIES',
     }, {
       headers: {
         'Content-Type': 'application/json',
@@ -96,6 +97,7 @@ router.post('/purchase', auth, async (req, res) => {
     const response = await axios.post(`${PROMO_API_URL}/purchase`, {
       code,
       externalUserId: String(userId),
+      app: 'BALA_STORIES',
     }, {
       headers: {
         'Content-Type': 'application/json',
