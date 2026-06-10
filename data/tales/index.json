@@ -32,5 +32,9 @@
 
   { "id": "three_batyrs", "title": "Три батыра", "lang": "ru", "file": "ru/three_batyrs.json" },
   { "id": "three_batyrs", "title": "Үш батыр", "lang": "kz", "file": "kz/three_batyrs_kz.json" },
-  { "id": "three_batyrs", "title": "Uch botir",  "lang": "uz", "file": "uz/three_batyrs_uz.json" }
+  { "id": "three_batyrs", "title": "Uch botir",  "lang": "uz", "file": "uz/three_batyrs_uz.json" },
+
+  { "id": "space_race",   "title": "Гонки к звёздам",          "lang": "ru", "file": "ru/space_race_ru.json" },
+  { "id": "space_race",   "title": "Жұлдыздарға қарай жарыс",  "lang": "kz", "file": "kz/space_race_kz.json" },
+  { "id": "space_race",   "title": "Yulduzlarga parvoz",       "lang": "uz", "file": "uz/space_race_uz.json" }
 ]
