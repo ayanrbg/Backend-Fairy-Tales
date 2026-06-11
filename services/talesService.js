@@ -63,17 +63,25 @@ async function getTalesList(lang) {
 }
 
 async function getTaleById(id, lang) {
-  let query, params;
+  const cols = 'SELECT slug AS id, title, lang, pages, COALESCE(free, false) AS free FROM tales';
 
+  let rows;
+
+  // Try the requested language first.
   if (lang) {
-    query = 'SELECT slug AS id, title, lang, pages, COALESCE(free, false) AS free FROM tales WHERE slug = $1 AND lang = $2';
-    params = [id, lang];
-  } else {
-    query = 'SELECT slug AS id, title, lang, pages, COALESCE(free, false) AS free FROM tales WHERE slug = $1 LIMIT 1';
-    params = [id];
+    ({ rows } = await pool.query(`${cols} WHERE slug = $1 AND lang = $2`, [id, lang]));
   }
 
-  const { rows } = await pool.query(query, params);
+  // Fallback: requested translation is missing → prefer the Russian (default)
+  // version, otherwise any available one. The returned `lang` reflects the
+  // REAL language of the version served (never an echo of the requested one),
+  // so the client can tell whether the translation actually exists.
+  if (!rows || !rows[0]) {
+    ({ rows } = await pool.query(
+      `${cols} WHERE slug = $1 ORDER BY (lang = 'ru') DESC LIMIT 1`,
+      [id]
+    ));
+  }
 
   if (!rows[0]) return null;
 
@@ -83,6 +91,15 @@ async function getTaleById(id, lang) {
   if (!tale.bundled) {
     tale.downloadSize = getDownloadSize(tale.id);
   }
+
+  // List of languages this tale is actually translated into, so the client
+  // can fetch only the translations that exist.
+  const { rows: langRows } = await pool.query(
+    'SELECT lang FROM tales WHERE slug = $1 ORDER BY lang',
+    [id]
+  );
+  tale.langs = langRows.map((r) => r.lang);
+
   return tale;
 }
 
