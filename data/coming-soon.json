@@ -1,0 +1,65 @@
+[
+  {
+    "id": "young_batyr",
+    "free": false,
+    "titles": {
+      "ru": "Юный батыр",
+      "kz": "Жас батыр",
+      "uz": "Yosh botir"
+    }
+  },
+  {
+    "id": "seventh_planet",
+    "free": false,
+    "titles": {
+      "ru": "Тайна седьмой планеты",
+      "kz": "Жетінші планетаның құпиясы",
+      "uz": "Yettinchi sayyora siri"
+    }
+  },
+  {
+    "id": "aladdin_grandson",
+    "free": false,
+    "titles": {
+      "ru": "Внук Алладина",
+      "kz": "Аладдиннің немересі",
+      "uz": "Alouddinning nabirasi"
+    }
+  },
+  {
+    "id": "stars_vanished",
+    "free": false,
+    "titles": {
+      "ru": "Когда исчезли все звёзды",
+      "kz": "Барлық жұлдыздар жоғалғанда",
+      "uz": "Barcha yulduzlar yo'qolganda"
+    }
+  },
+  {
+    "id": "future_treasure_map",
+    "free": false,
+    "titles": {
+      "ru": "Карта сокровищ из будущего",
+      "kz": "Болашақтан келген қазына картасы",
+      "uz": "Kelajakdan kelgan xazina xaritasi"
+    }
+  },
+  {
+    "id": "cloud_city",
+    "free": false,
+    "titles": {
+      "ru": "Город на облаках",
+      "kz": "Бұлттағы қала",
+      "uz": "Bulutlardagi shahar"
+    }
+  },
+  {
+    "id": "space_vacation",
+    "free": false,
+    "titles": {
+      "ru": "Космические каникулы",
+      "kz": "Ғарыштық демалыс",
+      "uz": "Kosmik ta'til"
+    }
+  }
+]

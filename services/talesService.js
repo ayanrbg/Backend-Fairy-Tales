@@ -6,6 +6,47 @@ const pool = require('../db');
 const BUNDLED_TALES = new Set(['golden_egg', 'farhad']);
 
 const ILLUSTRATIONS_DIR = path.join(__dirname, '..', 'data', 'illustrations');
+const COMING_SOON_FILE = path.join(__dirname, '..', 'data', 'coming-soon.json');
+
+/**
+ * Load "coming soon" tales (in development, not yet playable) from config.
+ * These have a per-language title and a cover, but no pages/text.
+ * Read fresh each time so edits to the JSON take effect without a restart.
+ */
+function loadComingSoon() {
+  try {
+    if (!fs.existsSync(COMING_SOON_FILE)) return [];
+    const raw = JSON.parse(fs.readFileSync(COMING_SOON_FILE, 'utf-8'));
+    if (!Array.isArray(raw)) return [];
+    // Only keep entries with an id and at least one title
+    return raw.filter(
+      (t) => t && typeof t.id === 'string' && t.titles && Object.keys(t.titles).length > 0
+    );
+  } catch (err) {
+    console.error('Failed to load coming-soon.json:', err.message);
+    return [];
+  }
+}
+
+// Build a single list entry for a coming-soon tale in the requested language.
+function comingSoonEntry(tale, lang) {
+  const titles = tale.titles || {};
+  const title = titles[lang] || titles.ru || Object.values(titles)[0] || tale.id;
+  return {
+    id: tale.id,
+    title,
+    titles,
+    lang: titles[lang] ? lang : (titles.ru ? 'ru' : Object.keys(titles)[0]),
+    free: !!tale.free,
+    coverUrl: `/api/tales/${tale.id}/cover`,
+    bundled: false,
+    comingSoon: true,
+  };
+}
+
+function getComingSoonById(id) {
+  return loadComingSoon().find((t) => t.id === id) || null;
+}
 
 // Cache for computed download sizes (bytes) — illustrations are static
 const downloadSizeCache = new Map();
@@ -48,18 +89,28 @@ async function getTalesList(lang) {
 
   const { rows } = await pool.query(query, params);
 
-  return rows.map(tale => {
+  const list = rows.map(tale => {
     const bundled = BUNDLED_TALES.has(tale.id);
     const result = {
       ...tale,
       coverUrl: `/api/tales/${tale.id}/cover`,
       bundled,
+      comingSoon: false,
     };
     if (!bundled) {
       result.downloadSize = getDownloadSize(tale.id);
     }
     return result;
   });
+
+  // Append "coming soon" tales. When a lang filter is set, only show those
+  // that have a title for that language (mirrors how DB tales are filtered).
+  for (const cs of loadComingSoon()) {
+    if (lang && !cs.titles[lang]) continue;
+    list.push(comingSoonEntry(cs, lang));
+  }
+
+  return list;
 }
 
 async function getTaleById(id, lang) {
@@ -83,7 +134,15 @@ async function getTaleById(id, lang) {
     ));
   }
 
-  if (!rows[0]) return null;
+  if (!rows[0]) {
+    // Not a real tale — maybe it's a "coming soon" placeholder.
+    const cs = getComingSoonById(id);
+    if (cs) {
+      const entry = comingSoonEntry(cs, lang);
+      return { ...entry, totalPages: 0, pages: [], genderedPages: [] };
+    }
+    return null;
+  }
 
   const tale = rows[0];
   tale.totalPages = tale.pages.length;
