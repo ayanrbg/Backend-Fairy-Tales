@@ -197,6 +197,12 @@ router.get('/status', auth, async (req, res) => {
     const active = result.rows.length > 0
       && new Date(result.rows[0].expires_at) > new Date();
 
+    console.log(
+      `[IAP] status request user=${userId} hasRow=${result.rows.length > 0} ` +
+      `expiresAt=${result.rows.length > 0 ? new Date(result.rows[0].expires_at).toISOString() : 'none'} ` +
+      `active=${active}`
+    );
+
     return res.json({
       active,
       expiresAt: result.rows.length > 0 ? result.rows[0].expires_at : null,
