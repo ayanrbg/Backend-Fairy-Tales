@@ -1,15 +1,16 @@
 const express = require('express');
 const axios = require('axios');
 const auth = require('../middleware/auth');
-const pool = require('../db');
+const ent = require('../services/entitlements');
 
 const router = express.Router();
 
 const PROMO_API_URL = process.env.PROMO_API_URL || 'https://promocode-stories.apiapp.kz/api/promo';
 const PROMO_API_KEY = process.env.PROMO_API_KEY;
 
-// POST /api/promo/check
-router.post('/check', auth, async (req, res) => {
+// Shared handler: validate a promo code against the external promo service and,
+// for premium codes, write the grant into `entitlements` (source='promo').
+async function handlePromoCheck(req, res) {
   try {
     const { code } = req.body;
     const userId = req.userId;
@@ -17,7 +18,6 @@ router.post('/check', auth, async (req, res) => {
     if (!code) {
       return res.status(400).json({ error: 'code is required' });
     }
-
     if (!PROMO_API_KEY) {
       return res.status(503).json({ error: 'Promo service not configured' });
     }
@@ -27,41 +27,39 @@ router.post('/check', auth, async (req, res) => {
       externalUserId: String(userId),
       app: 'BALA_STORIES',
     }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': PROMO_API_KEY,
-      },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': PROMO_API_KEY },
       timeout: 10000,
     });
 
     const data = response.data;
 
-    // Премиум-промокод — сразу активируем подписку
+    // Premium promo — activate the entitlement on the server.
     if (data.type === 'premium') {
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + data.durationDays);
+      // durationDays present -> temporary; absent/null -> lifetime (expires_at null).
+      const expiresAt = data.durationDays
+        ? new Date(Date.now() + data.durationDays * 24 * 60 * 60 * 1000)
+        : null;
 
-      await pool.query(
-        `INSERT INTO subscriptions (user_id, product_id, original_transaction_id, expires_at, platform, updated_at)
-         VALUES ($1, 'promo_premium', $2, $3, 'promo', NOW())
-         ON CONFLICT (user_id) DO UPDATE
-         SET product_id = 'promo_premium',
-             original_transaction_id = $2,
-             expires_at = GREATEST(subscriptions.expires_at, $3),
-             platform = 'promo',
-             updated_at = NOW()`,
-        [userId, `promo_${code}`, expiresAt]
-      );
+      const e = await ent.upsertEntitlement({
+        userId,
+        source: 'promo',
+        productId: null,
+        expiresAt,
+      });
+      ent.logEvent(userId, 'promo', data, 'promo');
+      console.log(`[IAP] GRANTED promo user=${userId} code=${code} expiresAt=${expiresAt ? expiresAt.toISOString() : 'lifetime'}`);
 
       return res.json({
         type: 'premium',
         durationDays: data.durationDays,
-        expiresAt,
-        message: `Премиум активирован на ${data.durationDays} дней`,
+        expiresAt: e.expires_at,
+        message: data.durationDays
+          ? `Премиум активирован на ${data.durationDays} дней`
+          : 'Премиум активирован',
       });
     }
 
-    // Блогер-промокод — возвращаем инфо клиенту
+    // Blogger promo — return info to the client.
     if (data.type === 'blogger') {
       return res.json({
         type: 'blogger',
@@ -78,9 +76,13 @@ router.post('/check', auth, async (req, res) => {
     console.error('Promo check error:', e.message);
     return res.status(500).json({ error: 'Internal server error' });
   }
-});
+}
 
-// POST /api/promo/purchase
+// POST /api/promo/check (legacy) and POST /api/promo (spec §5) — same behaviour.
+router.post('/check', auth, handlePromoCheck);
+router.post('/', auth, handlePromoCheck);
+
+// POST /api/promo/purchase — proxy to the external promo service (unchanged).
 router.post('/purchase', auth, async (req, res) => {
   try {
     const { code } = req.body;
@@ -89,7 +91,6 @@ router.post('/purchase', auth, async (req, res) => {
     if (!code) {
       return res.status(400).json({ error: 'code is required' });
     }
-
     if (!PROMO_API_KEY) {
       return res.status(503).json({ error: 'Promo service not configured' });
     }
@@ -99,10 +100,7 @@ router.post('/purchase', auth, async (req, res) => {
       externalUserId: String(userId),
       app: 'BALA_STORIES',
     }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-Key': PROMO_API_KEY,
-      },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': PROMO_API_KEY },
       timeout: 10000,
     });
 

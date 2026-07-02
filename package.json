@@ -13,7 +13,9 @@
   "type": "commonjs",
   "dependencies": {
     "@andresaya/edge-tts": "^1.8.0",
+    "@apple/app-store-server-library": "^1.4.0",
     "axios": "^1.13.6",
+    "google-auth-library": "^9.15.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
