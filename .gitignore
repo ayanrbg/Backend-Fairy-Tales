@@ -79,6 +79,11 @@ web_modules/
 .env.production.local
 .env.local
 
+# secrets (service account keys, etc.) — never commit
+secrets/
+bala-stories-*.json
+*-service-account*.json
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
