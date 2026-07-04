@@ -17,6 +17,7 @@ const adminSubscriptionRoutes = require('./routes/adminSubscriptions');
 const adminTalesRoutes = require('./routes/adminTales');
 const adminDebugRoutes = require('./routes/adminDebug');
 const adminAlertsRoutes = require('./routes/adminAlerts');
+const adminUsersRoutes = require('./routes/adminUsers');
 const requestLog = require('./middleware/requestLog');
 const diagnostics = require('./utils/diagnostics');
 
@@ -47,6 +48,7 @@ app.use('/api/admin/subscriptions', adminSubscriptionRoutes);
 app.use('/api/admin/tales', adminTalesRoutes);
 app.use('/api/admin/debug', adminDebugRoutes);
 app.use('/api/admin/alerts', adminAlertsRoutes);
+app.use('/api/admin/users', adminUsersRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
