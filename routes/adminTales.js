@@ -57,6 +57,56 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/admin/tales/:id — full detail for the editor: meta + text per language
+// + which assets exist. (More specific GETs like /content-check are separate paths.)
+router.get('/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!isSafeId(id)) return res.status(400).json({ error: 'invalid id' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT lang, title, pages, COALESCE(free,false) AS free, status,
+              coming_soon, sort_order, content_version
+         FROM tales WHERE slug = $1 ORDER BY lang`,
+      [id]
+    );
+    const titles = {};
+    const pagesByLang = {};
+    for (const r of rows) { titles[r.lang] = r.title; pagesByLang[r.lang] = r.pages; }
+    const meta = rows[0] || {};
+
+    const dir = path.join(ILLUSTRATIONS_DIR, id);
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    const variants = {};
+    for (const f of files) {
+      const m = f.match(/^page_(\d+)(?:_(boy|girl))?\.(webp|jpe?g|png)$/i);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      const g = m[2] ? m[2].toLowerCase() : 'plain';
+      (variants[n] = variants[n] || {})[g] = true;
+    }
+    const cover = IMG_EXTS.some((e) => fs.existsSync(path.join(COVERS_DIR, id + e)));
+
+    res.json({
+      id,
+      exists: rows.length > 0,
+      titles,
+      langs: rows.map((r) => r.lang),
+      free: !!meta.free,
+      status: meta.status || 'active',
+      comingSoon: !!meta.coming_soon,
+      sortOrder: meta.sort_order || 0,
+      contentVersion: meta.content_version || 1,
+      pagesByLang,
+      cover,
+      illustrations: Object.keys(variants).map(Number).sort((a, b) => a - b)
+        .map((n) => ({ page: n, ...variants[n] })),
+    });
+  } catch (e) {
+    console.error(`[ADMIN] tale detail error id=${id}: ${e.message}`);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // POST /api/admin/tales — create a tale (one DB row per language).
 // Body: { id, titles:{lang:title}, pages:{lang:[...]}?, free?, comingSoon?, sortOrder? }
 // Illustrations/covers are uploaded to storage separately (see spec §4).
