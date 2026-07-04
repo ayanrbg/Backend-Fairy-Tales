@@ -16,7 +16,7 @@ router.use(adminKey);
 // Scenario upload: a JSON file per language, same shape as data/tales/{lang}/{slug}.json.
 const scenarioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 // Zip of illustrations — written to a temp file (avoids buffering big archives in RAM).
-const zipUpload = multer({ storage: multer.diskStorage({}), limits: { fileSize: 400 * 1024 * 1024 } });
+const zipUpload = multer({ storage: multer.diskStorage({}), limits: { fileSize: 1024 * 1024 * 1024 } });
 
 // Conform an uploaded illustration to the on-server format: auto-orient, cap at
 // 2048px wide (like existing tales), re-encode as JPEG (mozjpeg q82 ≈ 300–440KB).
