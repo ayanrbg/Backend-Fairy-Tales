@@ -1,8 +1,10 @@
 const express = require('express');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
 const multer = require('multer');
+const AdmZip = require('adm-zip');
 const pool = require('../db');
 const adminKey = require('../middleware/adminKey');
 const imageUpload = require('../middleware/imageUpload');
@@ -13,6 +15,15 @@ router.use(adminKey);
 
 // Scenario upload: a JSON file per language, same shape as data/tales/{lang}/{slug}.json.
 const scenarioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+// Zip of illustrations — written to a temp file (avoids buffering big archives in RAM).
+const zipUpload = multer({ storage: multer.diskStorage({}), limits: { fileSize: 400 * 1024 * 1024 } });
+
+// Conform an uploaded illustration to the on-server format: auto-orient, cap at
+// 2048px wide (like existing tales), re-encode as JPEG (mozjpeg q82 ≈ 300–440KB).
+const ILLUSTRATION_MAX_WIDTH = 2048;
+function conformImage(input) {
+  return sharp(input).rotate().resize({ width: ILLUSTRATION_MAX_WIDTH, withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true });
+}
 
 const isSafeId = (id) => typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id);
 
@@ -308,8 +319,9 @@ router.post('/:id/cover', imageUpload.single('file'), async (req, res) => {
     fs.mkdirSync(COVERS_DIR, { recursive: true });
     removeSiblings(COVERS_DIR, id);
     const out = path.join(COVERS_DIR, `${id}.jpg`);
-    // Flatten on white in case of alpha; covers are served as image/jpeg.
-    const info = await sharp(req.file.buffer).flatten({ background: '#ffffff' }).jpeg({ quality: 85 }).toFile(out);
+    // Flatten on white in case of alpha; cap width; covers are served as image/jpeg.
+    const info = await sharp(req.file.buffer).rotate().flatten({ background: '#ffffff' })
+      .resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 85, mozjpeg: true }).toFile(out);
     console.log(`[ADMIN] cover upload id=${id} in=${req.file.size}b (${req.file.mimetype}) out=${info.size}b ${info.width}x${info.height}`);
     res.json({ id, cover: true, bytes: info.size, width: info.width, height: info.height });
   } catch (e) {
@@ -334,7 +346,7 @@ router.post('/:id/illustration/:page', imageUpload.single('file'), async (req, r
     const base = gender ? `page_${p}_${gender}` : `page_${p}`;
     removeSiblings(dir, base);
     const out = path.join(dir, `${base}.jpg`);
-    const info = await sharp(req.file.buffer).jpeg({ quality: 85 }).toFile(out);
+    const info = await conformImage(req.file.buffer).toFile(out);
     talesService.invalidateDownloadSize(id);
     console.log(`[ADMIN] illustration upload id=${id} page=${p} gender=${gender || 'plain'} out=${info.size}b ${info.width}x${info.height}`);
     res.json({ id, page: p, gender: gender || null, bytes: info.size, width: info.width, height: info.height });
@@ -358,6 +370,59 @@ router.delete('/:id/illustration/:page', (req, res) => {
   talesService.invalidateDownloadSize(id);
   console.log(`[ADMIN] illustration delete id=${id} page=${p} gender=${gender || 'plain'} removed=${removed}`);
   res.json({ id, page: p, gender: gender || null, removed });
+});
+
+// POST /api/admin/tales/:id/illustrations-zip  (multipart field "file")
+// Batch upload illustrations as a zip. Entries must be named page_N[_boy|_girl]
+// .(jpg|png|webp); each is conformed to the server format (2048px JPEG). Nested
+// folders are fine (only the basename matters). Non-matching entries are skipped.
+const ILL_NAME_RE = /^page_(\d+)(?:_(boy|girl))?\.(jpe?g|png|webp)$/i;
+router.post('/:id/illustrations-zip', zipUpload.single('file'), async (req, res) => {
+  const { id } = req.params;
+  if (!isSafeId(id)) return res.status(400).json({ error: 'invalid id' });
+  if (!req.file) return res.status(400).json({ error: 'file required (multipart field "file")' });
+
+  const zipPath = req.file.path;
+  try {
+    let entries;
+    try {
+      entries = new AdmZip(zipPath).getEntries();
+    } catch (e) {
+      return res.status(400).json({ error: 'invalid zip: ' + e.message });
+    }
+
+    const dir = path.join(ILLUSTRATIONS_DIR, id);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const uploaded = [];
+    const skipped = [];
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const base = path.basename(entry.entryName);
+      if (base.startsWith('.') || base.startsWith('__MACOSX')) continue;
+      const m = base.match(ILL_NAME_RE);
+      if (!m) { skipped.push(base); continue; }
+      const page = parseInt(m[1], 10);
+      const gender = m[2] ? m[2].toLowerCase() : null;
+      const outBase = gender ? `page_${page}_${gender}` : `page_${page}`;
+      try {
+        removeSiblings(dir, outBase);
+        const info = await conformImage(entry.getData()).toFile(path.join(dir, outBase + '.jpg'));
+        uploaded.push({ page, gender: gender || 'plain', width: info.width, height: info.height, bytes: info.size });
+      } catch (e) {
+        skipped.push(base + ' (' + e.message + ')');
+      }
+    }
+
+    talesService.invalidateDownloadSize(id);
+    console.log(`[ADMIN] illustrations-zip id=${id} uploaded=${uploaded.length} skipped=${skipped.length}`);
+    res.json({ id, uploaded, skipped, downloadSize: talesService.getDownloadSize(id) });
+  } catch (e) {
+    console.error(`[ADMIN] illustrations-zip error id=${id}: ${e.message}`);
+    res.status(500).json({ error: 'internal_error', detail: e.message });
+  } finally {
+    fs.unlink(zipPath, () => {});
+  }
 });
 
 // GET /api/admin/tales/:id/content-check — pre-publish validation. Catches the
