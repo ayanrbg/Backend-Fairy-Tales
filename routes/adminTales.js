@@ -51,7 +51,7 @@ router.get('/', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT slug AS id,
               jsonb_object_agg(lang, title) AS titles,
-              array_agg(lang ORDER BY lang)  AS langs,
+              COALESCE(array_agg(lang ORDER BY lang) FILTER (WHERE jsonb_array_length(pages) > 0), '{}') AS langs,
               bool_or(COALESCE(free,false))  AS free,
               max(status)                    AS status,
               bool_or(coming_soon)           AS coming_soon,
@@ -477,9 +477,12 @@ router.get('/:id/content-check', async (req, res) => {
       issues.push(...assetProblems);
     }
 
-    const pageCounts = new Set(langs.map((l) => l.pages));
+    // Compare only languages that actually have text (a title-only language is
+    // fine — translations are optional).
+    const withText = langs.filter((l) => l.pages > 0);
+    const pageCounts = new Set(withText.map((l) => l.pages));
     if (pageCounts.size > 1) {
-      warnings.push(`page count differs across languages: ${langs.map((l) => `${l.lang}=${l.pages}`).join(', ')}`);
+      warnings.push(`page count differs across languages: ${withText.map((l) => `${l.lang}=${l.pages}`).join(', ')}`);
     }
     // Illustrations for pages beyond the text length: the client never requests
     // them (it fetches pages 0..totalPages-1), but they still inflate downloadSize.

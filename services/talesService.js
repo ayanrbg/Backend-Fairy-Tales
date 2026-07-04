@@ -91,7 +91,7 @@ async function getTalesList(lang) {
   const { rows } = await pool.query(
     `SELECT slug AS id,
             jsonb_object_agg(lang, title) AS titles,
-            array_agg(lang ORDER BY lang)  AS langs,
+            COALESCE(array_agg(lang ORDER BY lang) FILTER (WHERE jsonb_array_length(pages) > 0), '{}') AS langs,
             bool_or(COALESCE(free, false)) AS free,
             max(status)                    AS status,
             bool_or(coming_soon)           AS coming_soon,
