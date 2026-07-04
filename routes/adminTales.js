@@ -481,10 +481,12 @@ router.get('/:id/content-check', async (req, res) => {
     if (pageCounts.size > 1) {
       warnings.push(`page count differs across languages: ${langs.map((l) => `${l.lang}=${l.pages}`).join(', ')}`);
     }
+    // Illustrations for pages beyond the text length: the client never requests
+    // them (it fetches pages 0..totalPages-1), but they still inflate downloadSize.
     const maxText = langs.length ? Math.max(...langs.map((l) => l.pages || 0)) : 0;
-    const maxIll = illustratedPages.length ? Math.max(...illustratedPages) + 1 : 0;
-    if (maxText && maxIll && maxText !== maxIll) {
-      warnings.push(`text has ${maxText} pages but illustrations cover ${maxIll} pages`);
+    const extraPages = maxText ? illustratedPages.filter((p) => p >= maxText) : [];
+    if (extraPages.length) {
+      warnings.push(`лишних иллюстраций: ${extraPages.length} (страниц текста ${maxText}, есть картинки для стр. ${extraPages.slice(0, 20).join(', ')}${extraPages.length > 20 ? '…' : ''}) — клиент их не скачивает, но они увеличивают downloadSize`);
     }
 
     const downloadSize = talesService.getDownloadSize(id);
