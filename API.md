@@ -890,6 +890,100 @@ Content-Length: 128450
 
 ---
 
+# Подписки и премиум
+
+Сервер — **единственный источник правды** по премиуму. Клиент хранит только оптимистичный кэш и всегда сверяется с сервером. Три эндпоинта (все — по пользовательскому JWT).
+
+## S1. Проверить премиум при запуске — `GET /api/subscription/status`
+
+> **Клиент ДОЛЖЕН дёргать этот эндпоинт при каждом запуске приложения** (и после возврата из фона, и после покупки/восстановления). Именно отсюда берётся дата окончания премиума и принимается решение — включать премиум или уже погасить.
+
+**Запрос:**
+```
+GET /api/subscription/status
+Authorization: Bearer <token>
+```
+
+**Ответ (200) — премиум активен:**
+```json
+{
+  "active": true,
+  "expiresAt": "2026-08-01T12:00:00.000Z",
+  "source": "apple",
+  "productId": "fairytales_yearly"
+}
+```
+
+**Ответ (200) — премиума нет / истёк:**
+```json
+{ "active": false, "expiresAt": null, "source": null, "productId": null }
+```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `active` | boolean | **Главное поле.** `true` — премиум действует прямо сейчас. Считается на сервере как `premium && (expiresAt == null \|\| expiresAt > now)` |
+| `expiresAt` | string\|null | Дата/время окончания премиума в **ISO-8601 UTC**. `null` = бессрочный (промо/админ-грант). Для стор-подписок — конец оплаченного периода; после успешного автопродления сервер сам сдвинет её вперёд |
+| `source` | string\|null | Откуда премиум: `apple` \| `google` \| `promo` \| `admin` \| `null` (если премиума нет) |
+| `productId` | string\|null | `fairytales_monthly` \| `fairytales_yearly` \| `null` (для промо/админ) |
+
+### Как клиент должен трактовать ответ
+
+1. **На каждом старте** вызвать `GET /api/subscription/status`.
+2. Если `active == true` → включить премиум. Показать дату окончания можно из `expiresAt` (для стор-подписок это дата следующего списания/окончания; для `expiresAt == null` — «бессрочно»).
+3. Премиум **выключать только** когда сервер вернул `active == false`. Не гасить премиум по локальному таймеру или по `expiresAt` в прошлом самостоятельно — сервер уже учёл автопродление, grace-period и S2S-события и сам вернёт `active:false`, когда премиум реально закончился.
+4. **Если запрос не удался (сеть/сервер недоступен)** — НЕ выключать премиум: оставить последнее известное состояние из локального кэша и повторить позже. Гашение — только по явному `active:false` от сервера.
+
+> Правило одной строкой: премиум **включается** от любого источника (кэш/чек/сервер), **выключается только** по `active:false` из `/status`. Дата окончания — всегда `expiresAt` из этого ответа.
+
+### Что происходит на сервере (для понимания)
+
+- Для Apple премиум продлевается/снимается автоматически через **S2S-нотификации** (`DID_RENEW`, `EXPIRED`, `REFUND` и т.д.) — `/status` просто читает актуальное состояние.
+- Для Google при истёкшем `expiresAt` сервер делает ленивую ре-валидацию в Google Play при обращении к `/status`.
+- Триал (Apple `is_trial_period`, Google `paymentState=2`) отдаётся как обычный активный премиум: `active:true` с `expiresAt` = конец триала.
+
+## S2. Подтвердить покупку — `POST /api/subscription/validate`
+
+Вызывается **после покупки или восстановления** (Restore). Сервер валидирует чек в сторе, включает премиум и возвращает то же тело, что и `/status`.
+
+**Запрос:**
+```
+POST /api/subscription/validate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "platform": "apple",              // "apple" | "google"
+  "receipt": "<base64 receipt | google purchaseToken>",
+  "productId": "fairytales_yearly"  // для google обязателен
+}
+```
+
+**Ответ (200):** `{ "active": true, "expiresAt": "...", "source": "apple", "productId": "..." }`
+
+| Ситуация | Ответ |
+|----------|-------|
+| Чек валиден | `200 { "active": true, ... }` |
+| Чек невалиден/истёк | `200 { "active": false, "error": "..." }` — это **не** сетевая ошибка, премиум не давать |
+| Стор временно недоступен (Apple 21005 и т.п.) | `503` — клиент сохраняет текущий кэш и повторяет позже |
+| Нет/битый JWT | `401` |
+
+> После `validate` клиенту не обязательно отдельно звать `/status` — тело ответа идентично. Но на следующем старте `/status` всё равно вызывается.
+
+## S3. Промокод — `POST /api/promo`
+
+**Запрос:**
+```
+POST /api/promo
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "code": "PROMO2026" }
+```
+
+**Ответ (200):** `{ "type": "premium", "expiresAt": "...", "message": "Премиум активирован" }` (для премиум-кодов; `expiresAt: null` = бессрочно). Грант пишется на сервер (`source='promo'`) и переживает перезапуск/переустановку — на следующем `/status` вернётся `active:true, source:"promo"`.
+
+---
+
 # Админ-API
 
 Управление каталогом сказок и подписками. Отдельная авторизация — **не** пользовательский JWT, а админ-ключ в заголовке:
@@ -1192,3 +1286,61 @@ GET /api/debug/log?userId=&session=&limit=200
 X-Admin-Key: <ADMIN_KEY>
 ```
 Возвращает массив записей (новые сверху), отфильтрованных по `userId`/`session`.
+
+---
+
+## A11. Диагностика сервера (debug)
+
+Обзор состояния сервера и активности IAP в одном месте — чтобы искать причину сбоя без SSH/psql. Требуют `X-Admin-Key`.
+
+### Обзор — `GET /api/admin/debug/overview`
+
+```
+GET /api/admin/debug/overview?limit=25
+X-Admin-Key: <ADMIN_KEY>
+```
+
+| Query | Описание |
+|-------|----------|
+| `limit` | Сколько последних записей в каждом списке (по умолчанию 25, максимум 200) |
+
+**Ответ (200):**
+```json
+{
+  "config": {
+    "apple": { "sharedSecret": true, "bundleId": "com.mozz.fairyTales", "appAppleId": "6761322650",
+               "s2sCerts": { "count": 2, "files": ["AppleRootCA-G2.cer", "AppleRootCA-G3.cer"] } },
+    "google": { "serviceAccount": "file-ok", "packageName": "com.tokengc.balastories" },
+    "adminKey": true, "promo": true, "debugHttp": true, "node": "v20.19.6"
+  },
+  "db": { "ok": true, "time": "2026-07-04T06:48:36.492Z" },
+  "entitlementCounts": [
+    { "source": "apple", "total": "3", "active": "1" },
+    { "source": "promo", "total": "3", "active": "1" }
+  ],
+  "recentEvents":    [ { "id": "…", "user_id": "…", "source": "apple", "kind": "s2s", "created_at": "…" } ],
+  "recentSnapshots": [ { "user_id": "…", "context": "init", "cached_premium": true, "received_at": "…" } ],
+  "recentLogs":      [ { "id": "…", "session": "…", "ev": "purchase_validated", "data": "…", "received_at": "…" } ],
+  "recentFailures":  [ ]
+}
+```
+
+| Поле | Что показывает |
+|------|----------------|
+| `config` | Что подключено на сервере (Apple secret/bundle/appAppleId, S2S-сертификаты, Google SA/package, admin-ключ, промо). Быстрая проверка мисконфига |
+| `db` | Доступность БД + серверное время |
+| `entitlementCounts` | Число прав по каждому источнику (`total`) и сколько из них активны (`active`) |
+| `recentEvents` | Последние события подписок (`validate` / `s2s` / `promo` / `admin_*`) из `subscription_events` |
+| `recentSnapshots` | Последние снимки клиента (`POST /api/subscription/sync`) |
+| `recentLogs` | Последние удалённые логи (`POST /api/debug/log`) |
+| `recentFailures` | Только записи логов с признаком ошибки (`ev` содержит `fail`, либо `data` содержит `error`/`granted=false`) — сюда смотреть в первую очередь |
+
+### Только конфиг — `GET /api/admin/debug/config`
+
+```
+GET /api/admin/debug/config
+X-Admin-Key: <ADMIN_KEY>
+```
+Ответ: `{ "config": { … }, "db": { "ok": true, "time": "…" } }` — то же, что `config`+`db` из overview.
+
+> **Логи процесса** (`pm2 logs fairy-backend`): префиксы для грепа — `[IAP]` (покупки/валидация/S2S), `[HTTP]`/`[HTTP!]` (запросы; `!` = ответ ≥400), `[BOOT]` (проблемы конфига при старте), `[FATAL]` (необработанные исключения), `[CLEANUP]` (чистка старых логов). Секреты (чеки, токены, подписи, промокоды, ключи) в логах маскируются как `<redacted len=N>`. Приглушить болтливость запросов: `DEBUG_HTTP=0` в `.env` (останутся только ошибки).
