@@ -318,10 +318,10 @@ router.post('/:id/cover', imageUpload.single('file'), async (req, res) => {
   try {
     fs.mkdirSync(COVERS_DIR, { recursive: true });
     removeSiblings(COVERS_DIR, id);
-    const out = path.join(COVERS_DIR, `${id}.jpg`);
-    // Flatten on white in case of alpha; cap width; covers are served as image/jpeg.
-    const info = await sharp(req.file.buffer).rotate().flatten({ background: '#ffffff' })
-      .resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 85, mozjpeg: true }).toFile(out);
+    const out = path.join(COVERS_DIR, `${id}.png`);
+    // Covers are stored and served as PNG (keeps transparency), capped at 1024px.
+    const info = await sharp(req.file.buffer).rotate()
+      .resize({ width: 1024, withoutEnlargement: true }).png({ compressionLevel: 9 }).toFile(out);
     console.log(`[ADMIN] cover upload id=${id} in=${req.file.size}b (${req.file.mimetype}) out=${info.size}b ${info.width}x${info.height}`);
     res.json({ id, cover: true, bytes: info.size, width: info.width, height: info.height });
   } catch (e) {
