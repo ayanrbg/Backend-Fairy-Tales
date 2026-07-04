@@ -76,40 +76,71 @@ function getDownloadSize(taleId) {
   return total;
 }
 
+// How long a soft-deleted tale keeps being returned (with status:"removed") so
+// clients get a chance to purge their local cache (SERVER_LIBRARY_SPEC §2).
+const REMOVED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Catalog list. The DB holds one row per (slug, lang); here we collapse to one
+ * entry per slug so the response carries the WHOLE catalog with localized
+ * `titles` — even tales not translated into `lang`. That is required for the
+ * client's cache-reconcile: it must see an explicit status:"removed", never
+ * infer deletion from a tale missing in one language (spec §2).
+ */
 async function getTalesList(lang) {
-  let query = 'SELECT slug AS id, title, lang, COALESCE(free, false) AS free FROM tales';
-  const params = [];
+  const { rows } = await pool.query(
+    `SELECT slug AS id,
+            jsonb_object_agg(lang, title) AS titles,
+            array_agg(lang ORDER BY lang)  AS langs,
+            bool_or(COALESCE(free, false)) AS free,
+            max(status)                    AS status,
+            bool_or(coming_soon)           AS coming_soon,
+            max(sort_order)                AS sort_order,
+            max(content_version)           AS content_version,
+            max(updated_at)                AS updated_at
+       FROM tales
+       GROUP BY slug`
+  );
 
-  if (lang) {
-    query += ' WHERE lang = $1';
-    params.push(lang);
-  }
-
-  query += ' ORDER BY title';
-
-  const { rows } = await pool.query(query, params);
-
-  const list = rows.map(tale => {
-    const bundled = BUNDLED_TALES.has(tale.id);
-    const result = {
-      ...tale,
-      coverUrl: `/api/tales/${tale.id}/cover`,
-      bundled,
-      comingSoon: false,
-    };
-    if (!bundled) {
-      result.downloadSize = getDownloadSize(tale.id);
+  const now = Date.now();
+  const list = [];
+  for (const t of rows) {
+    // Drop removed tales once the retention window has elapsed.
+    if (t.status === 'removed' && t.updated_at
+        && now - new Date(t.updated_at).getTime() > REMOVED_RETENTION_MS) {
+      continue;
     }
-    return result;
-  });
 
-  // Append "coming soon" tales. When a lang filter is set, only show those
-  // that have a title for that language (mirrors how DB tales are filtered).
-  for (const cs of loadComingSoon()) {
-    if (lang && !cs.titles[lang]) continue;
-    list.push(comingSoonEntry(cs, lang));
+    const titles = t.titles || {};
+    const displayTitle = titles[lang] || titles.ru || Object.values(titles)[0] || t.id;
+    const bundled = BUNDLED_TALES.has(t.id);
+    const entry = {
+      id: t.id,
+      title: displayTitle,
+      titles,
+      lang: titles[lang] ? lang : (titles.ru ? 'ru' : Object.keys(titles)[0]),
+      langs: t.langs,
+      free: t.free,
+      coverUrl: `/api/tales/${t.id}/cover`,
+      bundled,
+      comingSoon: t.coming_soon,
+      status: t.status,
+      sortOrder: t.sort_order,
+      contentVersion: t.content_version,
+    };
+    if (!bundled) entry.downloadSize = getDownloadSize(t.id);
+    list.push(entry);
   }
 
+  // Append file-based "coming soon" placeholders that have no DB row yet.
+  const dbIds = new Set(list.map((e) => e.id));
+  for (const cs of loadComingSoon()) {
+    if (dbIds.has(cs.id)) continue;
+    list.push({ ...comingSoonEntry(cs, lang), status: 'active', sortOrder: 0 });
+  }
+
+  // Order by sort_order (lower = higher); the client re-sorts by availability.
+  list.sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.title).localeCompare(String(b.title)));
   return list;
 }
 

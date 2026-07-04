@@ -12,6 +12,9 @@ const talesRoutes = require('./routes/tales');
 const subscriptionRoutes = require('./routes/subscription');
 const promoRoutes = require('./routes/promo');
 const appleNotificationRoutes = require('./routes/appleNotifications');
+const debugRoutes = require('./routes/debug');
+const adminSubscriptionRoutes = require('./routes/adminSubscriptions');
+const adminTalesRoutes = require('./routes/adminTales');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +29,9 @@ app.use('/api/tales', talesRoutes);
 app.use('/api/subscription', subscriptionRoutes);
 app.use('/api/promo', promoRoutes);
 app.use('/api/apple', appleNotificationRoutes);
+app.use('/api/debug', debugRoutes);
+app.use('/api/admin/subscriptions', adminSubscriptionRoutes);
+app.use('/api/admin/tales', adminTalesRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

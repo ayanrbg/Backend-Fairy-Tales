@@ -50,12 +50,23 @@ async function logEvent(userId, source, raw, kind) {
   }
 }
 
+/** A manual grant (admin/promo) that is still active must not be clobbered. */
+function isProtectedManual(e) {
+  return !!e && (e.source === 'admin' || e.source === 'promo')
+    && (e.expires_at === null || new Date(e.expires_at) > new Date());
+}
+
 /**
  * Upsert an entitlement for `userId`. If the same store transaction (Apple
  * originalTransactionId / Google purchaseToken) is currently attached to a
  * different user (reinstall → new GUID), we move it to `userId` (merge, §4).
+ *
+ * `opts.protectManual` (used by the store validate/revalidate paths) leaves an
+ * active admin/promo grant untouched: the store may add/extend its own record
+ * but must never strip a manual grant (§9c). Admin/promo writes pass it falsey
+ * so they can overwrite a store record.
  */
-async function upsertEntitlement(fields) {
+async function upsertEntitlement(fields, opts = {}) {
   const {
     userId, source, productId = null, originalTransactionId = null,
     purchaseToken = null, expiresAt = null, autoRenew = null, environment = null,
@@ -64,6 +75,17 @@ async function upsertEntitlement(fields) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    if (opts.protectManual) {
+      const existing = await client.query(
+        'SELECT * FROM entitlements WHERE user_id = $1 FOR UPDATE', [userId]
+      );
+      if (isProtectedManual(existing.rows[0])) {
+        await client.query('COMMIT');
+        console.log(`[IAP] store validate for user=${userId} kept manual grant source=${existing.rows[0].source} (not downgraded)`);
+        return existing.rows[0];
+      }
+    }
 
     // Merge: detach this store transaction from any other user.
     if (originalTransactionId) {
@@ -293,12 +315,122 @@ async function applyAppleNotification({ originalTransactionId, premium, expiresA
   return r.rows[0] ? r.rows[0].user_id : null;
 }
 
+// ─────────────────────────── snapshots (§9b) ───────────────────────────
+
+async function saveSnapshot({ userId, platform, appVersion, context, cachedPremium, products, clientTs }) {
+  await pool.query(
+    `INSERT INTO subscription_snapshots
+       (user_id, platform, app_version, context, cached_premium, products, client_ts)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [userId, platform, appVersion, context,
+     typeof cachedPremium === 'boolean' ? cachedPremium : null,
+     products ? JSON.stringify(products) : null,
+     clientTs ? new Date(clientTs) : null]
+  );
+}
+
+// ─────────────────────────── admin control (§9c) ───────────────────────────
+
+async function listEntitlements({ activeOnly = false, q = null, limit = 100, offset = 0 }) {
+  const where = [];
+  const params = [];
+  if (activeOnly) {
+    where.push('premium = TRUE AND (expires_at IS NULL OR expires_at > now())');
+  }
+  if (q) {
+    params.push(`%${q}%`);
+    where.push(`user_id ILIKE $${params.length}`);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  params.push(limit); const limIdx = params.length;
+  params.push(offset); const offIdx = params.length;
+  const { rows } = await pool.query(
+    `SELECT user_id, premium, source, product_id, expires_at, environment, updated_at
+       FROM entitlements ${whereSql}
+       ORDER BY updated_at DESC
+       LIMIT $${limIdx} OFFSET $${offIdx}`,
+    params
+  );
+  return rows.map((e) => ({
+    userId: e.user_id,
+    active: isActive(e),
+    premium: e.premium,
+    source: e.source,
+    productId: e.product_id,
+    expiresAt: e.expires_at ? new Date(e.expires_at).toISOString() : null,
+    environment: e.environment,
+    updatedAt: e.updated_at ? new Date(e.updated_at).toISOString() : null,
+  }));
+}
+
+async function getEntitlementDetail(userId) {
+  const entitlement = statusResponse(await getEntitlement(userId));
+  const [events, snap] = await Promise.all([
+    pool.query(
+      'SELECT id, source, kind, created_at FROM subscription_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100',
+      [userId]
+    ),
+    pool.query(
+      'SELECT platform, app_version, context, cached_premium, products, client_ts, received_at FROM subscription_snapshots WHERE user_id = $1 ORDER BY received_at DESC LIMIT 1',
+      [userId]
+    ),
+  ]);
+  return {
+    userId,
+    entitlement,
+    events: events.rows,
+    lastSnapshot: snap.rows[0] || null,
+  };
+}
+
+/**
+ * Manual admin grant — highest authority. Overwrites any store record and is
+ * immune to later store validation / S2S (source='admin', §9c).
+ * `expiresAt=null` → lifetime.
+ */
+async function adminGrant(userId, expiresAt) {
+  const e = await upsertEntitlement({
+    userId, source: 'admin', productId: null, expiresAt,
+  });
+  await logEvent(userId, 'admin', { expiresAt }, 'admin_grant');
+  return e;
+}
+
+async function adminRevoke(userId) {
+  const r = await pool.query(
+    `UPDATE entitlements SET premium = FALSE, updated_at = now()
+     WHERE user_id = $1 RETURNING *`,
+    [userId]
+  );
+  await logEvent(userId, 'admin', null, 'admin_revoke');
+  return r.rows[0] || null;
+}
+
+async function adminExtend(userId, days) {
+  const r = await pool.query(
+    `UPDATE entitlements SET
+       premium = TRUE,
+       expires_at = COALESCE(expires_at, now()) + ($2 || ' days')::interval,
+       updated_at = now()
+     WHERE user_id = $1 RETURNING *`,
+    [userId, String(days)]
+  );
+  await logEvent(userId, 'admin', { days }, 'admin_extend');
+  return r.rows[0] || null;
+}
+
 module.exports = {
   isActive,
   statusResponse,
   getEntitlement,
   logEvent,
   upsertEntitlement,
+  saveSnapshot,
+  listEntitlements,
+  getEntitlementDetail,
+  adminGrant,
+  adminRevoke,
+  adminExtend,
   applyAppleNotification,
   extractReceiptData,
   verifyAppleReceipt,

@@ -1,5 +1,6 @@
 const express = require('express');
 const auth = require('../middleware/auth');
+const optionalAuth = auth.optional;
 const ent = require('../services/entitlements');
 
 const router = express.Router();
@@ -47,7 +48,7 @@ router.post('/validate', auth, async (req, res) => {
         originalTransactionId: result.originalTransactionId,
         expiresAt: result.expiresAt,
         environment: result.environment,
-      });
+      }, { protectManual: true });
       console.log(`[IAP] GRANTED apple user=${userId} product=${result.productId} expiresAt=${result.expiresAt.toISOString()} env=${result.environment}`);
       return res.json(ent.statusResponse(e));
     }
@@ -78,7 +79,7 @@ router.post('/validate', auth, async (req, res) => {
         expiresAt: result.expiresAt,
         autoRenew: result.autoRenew,
         environment: result.environment,
-      });
+      }, { protectManual: true });
       console.log(`[IAP] GRANTED google user=${userId} product=${result.productId} expiresAt=${result.expiresAt.toISOString()}`);
       return res.json(ent.statusResponse(e));
     }
@@ -106,7 +107,7 @@ router.get('/status', auth, async (req, res) => {
             userId, source: 'google', productId: r.productId,
             purchaseToken: e.purchase_token, expiresAt: r.expiresAt,
             autoRenew: r.autoRenew, environment: r.environment,
-          });
+          }, { protectManual: true });
         }
       } catch (reErr) {
         console.error(`[IAP] lazy google revalidate failed user=${userId}: ${reErr.message}`);
@@ -120,6 +121,29 @@ router.get('/status', auth, async (req, res) => {
     console.error(`[IAP] status error user=${userId}: ${e.message}`);
     return res.json({ active: false, expiresAt: null, source: null, productId: null });
   }
+});
+
+// POST /api/subscription/sync — full client-state snapshot for monitoring (§9b).
+// JWT optional; userId comes from the token when present, else from the body.
+router.post('/sync', optionalAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const userId = req.userId || b.userId || null;
+    await ent.saveSnapshot({
+      userId,
+      platform: b.platform,
+      appVersion: b.appVersion,
+      context: b.context,
+      cachedPremium: b.cachedPremium,
+      products: b.products,
+      clientTs: b.ts,
+    });
+    console.log(`[IAP] sync user=${userId} context=${b.context} cachedPremium=${b.cachedPremium}`);
+  } catch (e) {
+    console.error(`[IAP] sync error: ${e.message}`);
+  }
+  // Fire-and-forget from the client's perspective — always 200.
+  return res.json({});
 });
 
 module.exports = router;
