@@ -193,4 +193,10 @@ async function getTaleById(id, lang) {
   return tale;
 }
 
-module.exports = { getTalesList, getTaleById };
+// Drop the cached illustration size for a tale so the next list recomputes it.
+// Call after any illustration upload/delete for that tale.
+function invalidateDownloadSize(taleId) {
+  downloadSizeCache.delete(taleId);
+}
+
+module.exports = { getTalesList, getTaleById, getDownloadSize, invalidateDownloadSize };
