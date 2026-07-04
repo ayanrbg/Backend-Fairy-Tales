@@ -112,10 +112,16 @@ router.post('/notifications', async (req, res) => {
       originalTransactionId, premium, expiresAt, productId, environment,
     });
 
+    // Richer audit row now that the transaction is decoded.
+    ent.logEvent(userId, 'apple', {
+      notificationType, subtype, originalTransactionId, productId,
+      premium, expiresAt, environment, matched: !!userId,
+    }, 's2s');
+
     if (userId) {
-      console.log(`[IAP] S2S ${notificationType}/${subtype || ''} applied user=${userId} tx=${originalTransactionId} premium=${premium} expiresAt=${expiresAt ? expiresAt.toISOString() : 'null'}`);
+      console.log(`[IAP] S2S ${notificationType}/${subtype || ''} applied user=${userId} tx=${originalTransactionId} product=${productId} premium=${premium} expiresAt=${expiresAt ? expiresAt.toISOString() : 'null'} env=${environment}`);
     } else {
-      console.log(`[IAP] S2S ${notificationType} tx=${originalTransactionId} — no matching entitlement, ignored`);
+      console.log(`[IAP] S2S ${notificationType}/${subtype || ''} tx=${originalTransactionId} product=${productId} — no matching entitlement, ignored`);
     }
 
     return res.status(200).json({ ok: true });

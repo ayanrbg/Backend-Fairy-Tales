@@ -177,11 +177,14 @@ async function verifyAppleReceipt(receiptData) {
 
   let data = await callApple(APPLE_VERIFY_PRODUCTION, body);
   if (data.status === 21007) {
+    console.log('[IAP] apple: prod said 21007 (sandbox receipt) → retrying on sandbox');
     data = await callApple(APPLE_VERIFY_SANDBOX, body);
   }
   if (data.status === 21008) {
+    console.log('[IAP] apple: sandbox said 21008 (prod receipt) → retrying on production');
     data = await callApple(APPLE_VERIFY_PRODUCTION, body);
   }
+  console.log(`[IAP] apple verifyReceipt status=${data.status} env=${data.environment || '?'} entries=${(data.latest_receipt_info || data.receipt?.in_app || []).length}`);
 
   if (data.status !== 0) {
     const label = APPLE_STATUS[data.status] || 'unknown status';
@@ -215,6 +218,8 @@ async function verifyAppleReceipt(receiptData) {
   const environment = (data.environment || '').toLowerCase() === 'sandbox' ? 'sandbox' : 'production';
   const expiresAt = new Date(best.ms);
   const valid = best.ms > Date.now();
+  const chosen = info.find((e) => e.original_transaction_id === best.originalTransactionId) || {};
+  console.log(`[IAP] apple chosen product=${best.productId} expiresAt=${expiresAt.toISOString()} valid=${valid} trial=${chosen.is_trial_period || 'false'} intro=${chosen.is_in_intro_offer_period || 'false'} env=${environment}`);
 
   return {
     valid,
@@ -271,6 +276,7 @@ async function verifyGooglePurchase(purchaseToken, productId) {
   const expiresMs = parseInt(d.expiryTimeMillis || '0', 10);
   const paymentOk = d.paymentState === 1 || d.paymentState === 2; // received | trial
   const valid = expiresMs > Date.now() && paymentOk;
+  console.log(`[IAP] google purchase product=${productId} paymentState=${d.paymentState}${d.paymentState === 2 ? ' (trial)' : ''} expiresAt=${new Date(expiresMs).toISOString()} ackState=${d.acknowledgementState} autoRenew=${d.autoRenewing} valid=${valid}`);
 
   // Acknowledge the purchase if not yet acknowledged.
   if (d.acknowledgementState === 0) {
