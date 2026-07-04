@@ -335,17 +335,30 @@ router.get('/:id/content-check', async (req, res) => {
     const illustratedPages = Object.keys(variants).map(Number).sort((a, b) => a - b);
     const coverExists = IMG_EXTS.some((e) => fs.existsSync(path.join(COVERS_DIR, id + e)));
 
+    const bundled = talesService.isBundled(id);
     const issues = [];
     const warnings = [];
     if (langs.length === 0) issues.push('no text rows in DB — create the tale first (POST /api/admin/tales)');
-    if (!variants[0]) issues.push('page_0 illustration missing (any variant) — client would treat the tale as not downloaded and re-download in a loop');
+
+    // Asset presence (cover / page_0 / gendered pairs). For bundled tales these
+    // ship inside the client, so a server-side gap is expected → warnings, not
+    // blocking issues.
+    const assetProblems = [];
+    if (!variants[0]) assetProblems.push('page_0 illustration missing (any variant) — client would treat the tale as not downloaded and re-download in a loop');
     for (const n of illustratedPages) {
       const v = variants[n];
       if ((v.boy || v.girl) && !(v.boy && v.girl)) {
-        issues.push(`page_${n} has only ${v.boy ? 'boy' : 'girl'} — gendered pages need BOTH boy and girl`);
+        assetProblems.push(`page_${n} has only ${v.boy ? 'boy' : 'girl'} — gendered pages need BOTH boy and girl`);
       }
     }
-    if (!coverExists) issues.push('cover missing');
+    if (!coverExists) assetProblems.push('cover missing');
+
+    if (bundled) {
+      if (assetProblems.length) warnings.push('bundled tale — assets ship with the client; server-side asset checks are informational');
+      warnings.push(...assetProblems);
+    } else {
+      issues.push(...assetProblems);
+    }
 
     const pageCounts = new Set(langs.map((l) => l.pages));
     if (pageCounts.size > 1) {
@@ -362,6 +375,7 @@ router.get('/:id/content-check', async (req, res) => {
     res.json({
       id,
       ok: issues.length === 0,
+      bundled,
       issues,
       warnings,
       cover: coverExists,

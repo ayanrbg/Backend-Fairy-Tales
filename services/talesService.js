@@ -199,4 +199,10 @@ function invalidateDownloadSize(taleId) {
   downloadSizeCache.delete(taleId);
 }
 
-module.exports = { getTalesList, getTaleById, getDownloadSize, invalidateDownloadSize };
+// Bundled tales ship their illustrations/cover inside the Unity client, so the
+// server legitimately has no assets for them.
+function isBundled(taleId) {
+  return BUNDLED_TALES.has(taleId);
+}
+
+module.exports = { getTalesList, getTaleById, getDownloadSize, invalidateDownloadSize, isBundled };
