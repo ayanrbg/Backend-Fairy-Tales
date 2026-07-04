@@ -2,6 +2,7 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const optionalAuth = auth.optional;
 const ent = require('../services/entitlements');
+const alerts = require('../services/alerts');
 
 const router = express.Router();
 
@@ -50,6 +51,11 @@ router.post('/validate', auth, async (req, res) => {
         environment: result.environment,
       }, { protectManual: true });
       console.log(`[IAP] GRANTED apple user=${userId} product=${result.productId} expiresAt=${result.expiresAt.toISOString()} env=${result.environment}`);
+      alerts.emitAlert({
+        kind: 'purchase', userId, source: 'apple', productId: result.productId,
+        environment: result.environment, expiresAt: result.expiresAt,
+        dedupKey: `purchase|apple|${result.originalTransactionId}|${result.expiresAt.toISOString()}`,
+      });
       return res.json(ent.statusResponse(e));
     }
 
@@ -81,6 +87,11 @@ router.post('/validate', auth, async (req, res) => {
         environment: result.environment,
       }, { protectManual: true });
       console.log(`[IAP] GRANTED google user=${userId} product=${result.productId} expiresAt=${result.expiresAt.toISOString()}`);
+      alerts.emitAlert({
+        kind: 'purchase', userId, source: 'google', productId: result.productId,
+        expiresAt: result.expiresAt,
+        dedupKey: `purchase|google|${receipt}|${result.expiresAt.toISOString()}`,
+      });
       return res.json(ent.statusResponse(e));
     }
 

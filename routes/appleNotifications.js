@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const ent = require('../services/entitlements');
+const alerts = require('../services/alerts');
 
 const router = express.Router();
 
@@ -120,6 +121,17 @@ router.post('/notifications', async (req, res) => {
 
     if (userId) {
       console.log(`[IAP] S2S ${notificationType}/${subtype || ''} applied user=${userId} tx=${originalTransactionId} product=${productId} premium=${premium} expiresAt=${expiresAt ? expiresAt.toISOString() : 'null'} env=${environment}`);
+      // On-site admin alert for meaningful transitions.
+      let alertKind = null;
+      if (REVOKE.has(notificationType)) alertKind = 'refund';
+      else if (EXPIRE.has(notificationType)) alertKind = 'expire';
+      else if (notificationType === 'DID_RENEW') alertKind = 'renewal';
+      if (alertKind) {
+        alerts.emitAlert({
+          kind: alertKind, userId, source: 'apple', productId, environment, expiresAt,
+          dedupKey: `${alertKind}|apple|${originalTransactionId}|${notificationType}|${expiresAt ? expiresAt.toISOString() : ''}`,
+        });
+      }
     } else {
       console.log(`[IAP] S2S ${notificationType}/${subtype || ''} tx=${originalTransactionId} product=${productId} — no matching entitlement, ignored`);
     }

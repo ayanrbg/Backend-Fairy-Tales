@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const auth = require('../middleware/auth');
 const ent = require('../services/entitlements');
+const alerts = require('../services/alerts');
 
 const router = express.Router();
 
@@ -48,6 +49,10 @@ async function handlePromoCheck(req, res) {
       });
       ent.logEvent(userId, 'promo', data, 'promo');
       console.log(`[IAP] GRANTED promo user=${userId} code=${code} expiresAt=${expiresAt ? expiresAt.toISOString() : 'lifetime'}`);
+      alerts.emitAlert({
+        kind: 'promo', userId, source: 'promo', expiresAt,
+        dedupKey: `promo|${userId}|${code}|${expiresAt ? expiresAt.toISOString() : 'lifetime'}`,
+      });
 
       return res.json({
         type: 'premium',
