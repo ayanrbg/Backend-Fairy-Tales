@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
+const multer = require('multer');
 const pool = require('../db');
 const adminKey = require('../middleware/adminKey');
 const imageUpload = require('../middleware/imageUpload');
@@ -9,6 +10,9 @@ const talesService = require('../services/talesService');
 
 const router = express.Router();
 router.use(adminKey);
+
+// Scenario upload: a JSON file per language, same shape as data/tales/{lang}/{slug}.json.
+const scenarioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const isSafeId = (id) => typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id);
 
@@ -40,15 +44,16 @@ router.get('/', async (req, res) => {
               bool_or(COALESCE(free,false))  AS free,
               max(status)                    AS status,
               bool_or(coming_soon)           AS coming_soon,
-              max(sort_order)                AS sort_order,
               max(content_version)           AS content_version,
+              min(created_at)                AS created_at,
               max(updated_at)                AS updated_at
-         FROM tales GROUP BY slug ORDER BY max(sort_order), slug`
+         FROM tales GROUP BY slug ORDER BY min(created_at) ASC, slug`
     );
     res.json(rows.map((t) => ({
       id: t.id, titles: t.titles, langs: t.langs, free: t.free,
-      status: t.status, comingSoon: t.coming_soon, sortOrder: t.sort_order,
+      status: t.status, comingSoon: t.coming_soon,
       contentVersion: t.content_version,
+      createdAt: t.created_at ? new Date(t.created_at).toISOString() : null,
       updatedAt: t.updated_at ? new Date(t.updated_at).toISOString() : null,
     })));
   } catch (e) {
@@ -242,6 +247,53 @@ router.put('/:id/pages', async (req, res) => {
   } catch (e) {
     console.error(`[ADMIN] pages update error id=${id}: ${e.message}`);
     res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/admin/tales/:id/scenario?lang=ru  (multipart field "file")
+// Upload the tale scenario as a JSON file — same format as the server's
+// data/tales/{lang}/{slug}.json: { id, title, lang, pages: [...] }. One file per
+// language. Creates the language row if missing (keeping a form-set title).
+router.post('/:id/scenario', scenarioUpload.single('file'), async (req, res) => {
+  const { id } = req.params;
+  if (!isSafeId(id)) return res.status(400).json({ error: 'invalid id' });
+  if (!req.file) return res.status(400).json({ error: 'file required (multipart field "file")' });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(req.file.buffer.toString('utf8'));
+  } catch (e) {
+    return res.status(400).json({ error: 'invalid JSON file: ' + e.message });
+  }
+
+  const lang = String(req.query.lang || parsed.lang || '').trim();
+  if (!lang) return res.status(400).json({ error: 'lang required (query ?lang= or "lang" field in the file)' });
+
+  const pages = parsed.pages;
+  if (!Array.isArray(pages) || pages.length === 0 || !pages.every((p) => typeof p === 'string')) {
+    return res.status(400).json({ error: 'file must contain a non-empty "pages" array of strings' });
+  }
+  const fileTitle = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : null;
+
+  try {
+    // Keep an existing (form-set) title; use the file title only when creating.
+    await pool.query(
+      `INSERT INTO tales (slug, title, lang, pages, status, updated_at)
+       VALUES ($1, $2, $3, $4, 'active', now())
+       ON CONFLICT (slug, lang) DO UPDATE SET
+         pages = EXCLUDED.pages,
+         title = COALESCE(NULLIF(tales.title, ''), EXCLUDED.title),
+         updated_at = now()`,
+      [id, fileTitle || id, lang, JSON.stringify(pages)]
+    );
+    const mismatch = (parsed.lang && req.query.lang && parsed.lang !== req.query.lang)
+      ? `warning: file lang="${parsed.lang}" differs from selected "${req.query.lang}" — saved under "${lang}"`
+      : undefined;
+    console.log(`[ADMIN] scenario upload id=${id} lang=${lang} pages=${pages.length} title="${fileTitle || ''}"${mismatch ? ' (' + mismatch + ')' : ''}`);
+    res.json({ id, lang, pages: pages.length, title: fileTitle || undefined, warning: mismatch });
+  } catch (e) {
+    console.error(`[ADMIN] scenario upload error id=${id}: ${e.message}`);
+    res.status(500).json({ error: 'internal_error', detail: e.message });
   }
 });
 

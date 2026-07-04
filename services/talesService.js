@@ -97,6 +97,7 @@ async function getTalesList(lang) {
             bool_or(coming_soon)           AS coming_soon,
             max(sort_order)                AS sort_order,
             max(content_version)           AS content_version,
+            min(created_at)                AS created_at,
             max(updated_at)                AS updated_at
        FROM tales
        GROUP BY slug`
@@ -127,20 +128,23 @@ async function getTalesList(lang) {
       status: t.status,
       sortOrder: t.sort_order,
       contentVersion: t.content_version,
+      createdAt: t.created_at ? new Date(t.created_at).toISOString() : null,
     };
     if (!bundled) entry.downloadSize = getDownloadSize(t.id);
     list.push(entry);
   }
 
   // Append file-based "coming soon" placeholders that have no DB row yet.
+  // They sort last (sentinel far-future date).
   const dbIds = new Set(list.map((e) => e.id));
   for (const cs of loadComingSoon()) {
     if (dbIds.has(cs.id)) continue;
-    list.push({ ...comingSoonEntry(cs, lang), status: 'active', sortOrder: 0 });
+    list.push({ ...comingSoonEntry(cs, lang), status: 'active', sortOrder: 0, createdAt: '9999-12-31T00:00:00.000Z' });
   }
 
-  // Order by sort_order (lower = higher); the client re-sorts by availability.
-  list.sort((a, b) => (a.sortOrder - b.sortOrder) || String(a.title).localeCompare(String(b.title)));
+  // Order by publication date: newest tales appear at the bottom. The client
+  // re-sorts by availability but preserves this order within a group.
+  list.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
   return list;
 }
 
