@@ -157,14 +157,20 @@ Authorization: Bearer <token>
 | Поле | Тип | Описание |
 |------|-----|----------|
 | `id` | string | ID сказки (одинаковый для всех языков) |
-| `title` | string | Название на языке версии |
-| `titles` | object | Названия на всех языках (`{ "ru": ..., "kz": ..., "uz": ... }`). Присутствует **только** у `comingSoon: true` |
-| `lang` | string | Код языка (`ru`, `en`, `kz`, `uz`) |
+| `title` | string | Название на запрошенном языке (fallback `ru` → первый доступный) |
+| `titles` | object | Названия на всех языках (`{ "ru": ..., "kz": ..., "uz": ... }`). Присутствует у **всех** сказок |
+| `lang` | string | Код языка отданного `title` (`ru`, `en`, `kz`, `uz`) |
+| `langs` | string[] | Языки, на которые сказка реально переведена |
 | `free` | boolean | Бесплатная ли сказка |
 | `coverUrl` | string | URL для загрузки обложки |
 | `bundled` | boolean | `true` — иллюстрации встроены в клиент, загрузка не требуется |
 | `downloadSize` | number | Размер иллюстраций в байтах (только для `bundled: false`). Включает обе версии (boy + girl). Отсутствует если `bundled: true` |
 | `comingSoon` | boolean | `true` — сказка в разработке, **скоро будет**. Есть только название и обложка; текста/страниц нет, открывать/озвучивать нельзя. Клиент показывает её с бейджем «Скоро» |
+| `status` | string | `active` — показывать; `hidden` — скрыть у новых; `removed` — скрыть **и стереть локальный кэш** сказки. Клиент реагирует на явный `removed` (сказка держится в выдаче ещё ~30 дней после удаления, чтобы клиент успел подчистить кэш) |
+| `sortOrder` | number | Порядок в библиотеке (меньше = выше). Клиент дополнительно сортирует по доступности |
+| `contentVersion` | number | Версия контента. Растёт при обновлении сказки — клиент может перекачать изменённое |
+
+> `GET /api/tales` возвращает **весь каталог** по одной записи на сказку (с `titles` на всех языках), включая сказки, не переведённые на запрошенный `lang`. Это нужно, чтобы клиент не принял отсутствие перевода за удаление: чистку кэша он делает только по явному `status: "removed"`. Управление каталогом (статус, «скоро», порядок, удаление) — через админ-эндпоинты, см. раздел [«Админ-API»](#админ-api) ниже.
 
 > **Coming soon (скоро будет):** сказки с `comingSoon: true` отдаются в общем списке вместе с готовыми. У них есть `coverUrl` (обложка грузится с сервера как обычно) и `titles` со всеми языками, но **нет страниц**. Подробнее — см. раздел [«Сказки "Скоро будет"»](#сказки-скоро-будет) ниже.
 
@@ -881,3 +887,308 @@ Content-Length: 128450
 16. PUT  /api/user/profile                               → обновить профиль
 17. DELETE /api/voice                                    → удалить клонированный голос
 ```
+
+---
+
+# Админ-API
+
+Управление каталогом сказок и подписками. Отдельная авторизация — **не** пользовательский JWT, а админ-ключ в заголовке:
+
+```
+X-Admin-Key: <ADMIN_KEY>
+```
+
+`ADMIN_KEY` хранится в серверном `.env`. Без ключа или с неверным — `401 { "error": "Invalid admin key" }`; если ключ не сконфигурирован на сервере — `503 { "error": "Admin key not configured" }`.
+
+---
+
+## A1. Список подписок
+
+**Запрос:**
+```
+GET /api/admin/subscriptions?active=true&q=&limit=100&offset=0
+X-Admin-Key: <ADMIN_KEY>
+```
+
+| Query | Тип | Описание |
+|-------|-----|----------|
+| `active` | bool | `true` — только активные (premium и не истёк) |
+| `q` | string | Поиск по подстроке `userId` |
+| `limit` | int | По умолчанию 100, максимум 500 |
+| `offset` | int | Смещение для пагинации |
+
+**Ответ (200):**
+```json
+[
+  {
+    "userId": "a30cede5-9149-48ff-a5ec-f639cec17222",
+    "active": true,
+    "premium": true,
+    "source": "apple",
+    "productId": "fairytales_monthly",
+    "expiresAt": "2026-07-23T17:46:48.000Z",
+    "environment": null,
+    "updatedAt": "2026-06-23T17:47:03.342Z"
+  }
+]
+```
+
+| Поле | Описание |
+|------|----------|
+| `source` | `apple` \| `google` \| `promo` \| `admin` |
+| `active` | `premium && (expiresAt == null \|\| expiresAt > now)` |
+| `expiresAt` | `null` = бессрочно (promo/admin) |
+
+---
+
+## A2. Карточка подписки пользователя
+
+**Запрос:**
+```
+GET /api/admin/subscriptions/{userId}
+X-Admin-Key: <ADMIN_KEY>
+```
+
+**Ответ (200):** текущее право + история событий + последний снимок клиента.
+```json
+{
+  "userId": "4a104582-0862-4b60-8a38-1088c6bd1997",
+  "entitlement": {
+    "active": true,
+    "expiresAt": "2026-08-01T13:42:57.021Z",
+    "source": "promo",
+    "productId": null
+  },
+  "events": [
+    { "id": "12", "source": "admin", "kind": "admin_grant", "created_at": "2026-07-04T06:30:00.000Z" }
+  ],
+  "lastSnapshot": {
+    "platform": "IPhonePlayer",
+    "app_version": "1.0.3",
+    "context": "init",
+    "cached_premium": true,
+    "products": [ { "id": "fairytales_monthly", "available": true, "hasReceipt": true } ],
+    "client_ts": "2026-07-02T10:15:30.000Z",
+    "received_at": "2026-07-02T10:15:31.000Z"
+  }
+}
+```
+`events` и `lastSnapshot` могут быть пустыми (`[]` / `null`).
+
+---
+
+## A3. Выдать премиум вручную (grant)
+
+Записывает право с `source='admin'` — **перекрывает** любую стор-запись и не сбрасывается последующей валидацией стора / S2S (снять можно только `revoke`).
+
+**Запрос:**
+```
+POST /api/admin/subscriptions/{userId}/grant
+X-Admin-Key: <ADMIN_KEY>
+Content-Type: application/json
+
+{ "days": 30 }
+```
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `days` | int | Премиум на N дней от текущего момента |
+| `until` | string | Дата окончания (ISO, напр. `"2026-12-31"`) — альтернатива `days` |
+| — | — | Если ни `days`, ни `until` не переданы → **бессрочно** (`expiresAt: null`) |
+
+**Ответ (200):**
+```json
+{ "active": true, "expiresAt": "2026-08-03T06:30:00.000Z", "source": "admin", "productId": null }
+```
+
+**Ошибка (400):** `{ "error": "invalid until" }`
+
+---
+
+## A4. Снять премиум (revoke)
+
+**Запрос:**
+```
+POST /api/admin/subscriptions/{userId}/revoke
+X-Admin-Key: <ADMIN_KEY>
+```
+
+**Ответ (200):**
+```json
+{ "active": false, "expiresAt": "...", "source": "admin", "productId": null }
+```
+
+**Ошибка (404):** `{ "error": "no entitlement for user" }`
+
+---
+
+## A5. Продлить премиум (extend)
+
+Сдвигает `expiresAt` на N дней (от текущего значения, либо от `now`, если было бессрочно/пусто).
+
+**Запрос:**
+```
+POST /api/admin/subscriptions/{userId}/extend
+X-Admin-Key: <ADMIN_KEY>
+Content-Type: application/json
+
+{ "days": 7 }
+```
+
+**Ответ (200):** обновлённое право (как в grant). **Ошибки:** `400 { "error": "days required" }`, `404 { "error": "no entitlement for user" }`.
+
+---
+
+## A6. Список сказок (админ)
+
+Полный каталог по одной записи на сказку, **включая** `hidden` и `removed`.
+
+**Запрос:**
+```
+GET /api/admin/tales
+X-Admin-Key: <ADMIN_KEY>
+```
+
+**Ответ (200):**
+```json
+[
+  {
+    "id": "baursak",
+    "titles": { "ru": "Баурсак", "kz": "Баурсақ", "uz": "Baursaq" },
+    "langs": ["kz", "ru", "uz"],
+    "free": false,
+    "status": "active",
+    "comingSoon": false,
+    "sortOrder": 0,
+    "contentVersion": 1,
+    "updatedAt": "2026-07-04T06:26:58.523Z"
+  }
+]
+```
+
+---
+
+## A7. Создать сказку
+
+Заводит запись каталога (по одной строке на язык). Иллюстрации/обложку заливать в хранилище отдельно (см. `ADDING_TALES.md`). Пока не залит контент — можно держать `comingSoon: true`.
+
+**Запрос:**
+```
+POST /api/admin/tales
+X-Admin-Key: <ADMIN_KEY>
+Content-Type: application/json
+
+{
+  "id": "new_tale",
+  "titles": { "ru": "Новая сказка", "kz": "Жаңа ертегі", "uz": "Yangi ertak" },
+  "pages": { "ru": ["Страница 1...", "Страница 2..."] },
+  "free": false,
+  "comingSoon": true,
+  "sortOrder": 10
+}
+```
+
+| Поле | Обяз. | Описание |
+|------|-------|----------|
+| `id` | да | Только латиница/цифры/`_`/`-` |
+| `titles` | да | `{ lang: title }`, минимум один язык |
+| `pages` | нет | `{ lang: [строки] }`. По умолчанию пусто |
+| `free` / `comingSoon` / `sortOrder` | нет | Флаги каталога |
+
+**Ответ (200):** `{ "id": "new_tale", "created": true }`. **Ошибки:** `400 { "error": "invalid id" }`, `400 { "error": "titles required" }`.
+
+---
+
+## A8. Обновить сказку (patch)
+
+Обновляются только переданные поля. Слаг-уровневые (`free`, `comingSoon`, `status`, `sortOrder`) применяются ко всем языковым строкам сказки; `titles` — точечно по языкам.
+
+**Запрос:**
+```
+PATCH /api/admin/tales/{id}
+X-Admin-Key: <ADMIN_KEY>
+Content-Type: application/json
+
+{
+  "status": "hidden",
+  "sortOrder": 3,
+  "titles": { "ru": "Новое название" }
+}
+```
+
+| Поле | Значения |
+|------|----------|
+| `status` | `active` \| `hidden` \| `removed` |
+| `free` | bool |
+| `comingSoon` | bool |
+| `sortOrder` | number |
+| `titles` | `{ lang: title }` — обновляет существующие языковые строки |
+
+**Ответ (200):** `{ "id": "...", "updated": true }`. **Ошибки:** `400 { "error": "invalid status" }`, `404 { "error": "tale not found" }`.
+
+---
+
+## A9. Быстрые действия каталога
+
+Все требуют `X-Admin-Key`. Возвращают `404 { "error": "tale not found" }`, если сказки нет.
+
+| Метод | Эндпоинт | Тело | Действие | Ответ |
+|-------|----------|------|----------|-------|
+| POST | `/api/admin/tales/{id}/coming-soon` | `{ "value": true }` | Тумблер «скоро» | `{ "id", "comingSoon" }` |
+| POST | `/api/admin/tales/{id}/publish` | — | `comingSoon=false`, `status='active'` | `{ "id", "published": true }` |
+| POST | `/api/admin/tales/{id}/reorder` | `{ "sortOrder": 5 }` | Порядок в библиотеке | `{ "id", "sortOrder" }` |
+| DELETE | `/api/admin/tales/{id}` | — | Мягкое удаление: `status='removed'` (клиент подчистит кэш; запись держится ~30 дней) | `{ "id", "removed": true }` |
+
+> Удаление **мягкое** — строка не стирается сразу, а помечается `removed` и ещё ~30 дней отдаётся в `GET /api/tales`, чтобы клиенты успели удалить локальный кэш сказки.
+
+---
+
+## A10. Мониторинг клиента (без админ-ключа)
+
+Эти эндпоинты вызывает **клиент** (не админ), поэтому админ-ключ не нужен.
+
+### Снимок состояния подписки — `POST /api/subscription/sync`
+
+JWT опционален (если есть — `userId` берётся из токена). Клиент шлёт полный снимок; сервер складывает в `subscription_snapshots` (виден в карточке A2). Ответ всегда `200 {}`.
+
+```
+POST /api/subscription/sync
+Authorization: Bearer <token>   // опционально
+Content-Type: application/json
+
+{
+  "userId": "<guid>",
+  "platform": "IPhonePlayer",
+  "appVersion": "1.0.3",
+  "context": "init",
+  "cachedPremium": true,
+  "products": [ { "id": "fairytales_monthly", "available": true, "hasReceipt": true } ],
+  "ts": "2026-07-02T10:15:30Z"
+}
+```
+
+### Удалённые логи — `POST /api/debug/log`
+
+Без авторизации (логи должны проходить и до логина). Fire-and-forget, всегда `200 {}`.
+
+```
+POST /api/debug/log
+Content-Type: application/json
+
+{
+  "userId": "<guid или пусто>",
+  "session": "a1b2c3d4",
+  "platform": "IPhonePlayer",
+  "appVersion": "1.0.3",
+  "ev": "purchase_validated",
+  "data": "ok=true; active=true; source=apple; granted=true",
+  "ts": "2026-07-02T10:15:30Z"
+}
+```
+
+**Чтение логов (админ):**
+```
+GET /api/debug/log?userId=&session=&limit=200
+X-Admin-Key: <ADMIN_KEY>
+```
+Возвращает массив записей (новые сверху), отфильтрованных по `userId`/`session`.
