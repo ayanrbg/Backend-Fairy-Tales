@@ -45,15 +45,18 @@ function userIdFromAuth(req) {
 function requestLog(req, res, next) {
   const quiet = process.env.DEBUG_HTTP === '0';
   const start = Date.now();
+  // Use originalUrl: by the time 'finish' fires, sub-routers have restored
+  // req.url to the mount-relative path, so req.path would be truncated.
+  const fullPath = (req.originalUrl || req.url || '').split('?')[0];
   res.on('finish', () => {
     const ms = Date.now() - start;
-    const isAsset = ASSET_RE.test(req.path);
+    const isAsset = ASSET_RE.test(fullPath);
     const isError = res.statusCode >= 400;
     if (isAsset && !isError) return;                 // skip successful image/audio fetches
     if (quiet && !isError) return;                   // quiet mode: errors only
 
     const user = userIdFromAuth(req);
-    const verbose = VERBOSE_PREFIXES.some((p) => req.path.startsWith(p));
+    const verbose = VERBOSE_PREFIXES.some((p) => fullPath.startsWith(p));
     let bodyStr = '';
     if (verbose && req.body && Object.keys(req.body).length) {
       try { bodyStr = ` body=${JSON.stringify(redact(req.body))}`; } catch (_) { bodyStr = ' body=<unserializable>'; }
