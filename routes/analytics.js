@@ -250,6 +250,86 @@ router.get('/insights', adminKey, async (req, res) => {
   }
 });
 
+// GET /api/analytics/tale/:id?since=&platform= — deep dive for a single tale.
+// Needs the reading events mirrored (tale_open / tale_page_view / tale_abandon,
+// plus tale_complete). Returns the page-retention curve (how many reached each
+// page), the exit-page distribution (where readers quit) and average dwell time
+// per page (derived from consecutive tale_page_view timestamps in a session).
+router.get('/tale/:id', adminKey, async (req, res) => {
+  try {
+    const taleId = req.params.id;
+    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const platform = req.query.platform || null;
+    // $1 since, $2 tale_id, ($3 platform when filtering).
+    const pf = platform ? ' AND platform = $3' : '';
+    const args = platform ? [since, taleId, platform] : [since, taleId];
+    const [byName, comp, reach, exits, dwell] = await Promise.all([
+      pool.query(
+        `SELECT name, COUNT(*)::int AS count, COUNT(DISTINCT session)::int AS sessions
+           FROM analytics_events
+          WHERE received_at >= $1${pf} AND params->>'tale_id' = $2
+            AND name IN ('tale_open', 'tale_page_view', 'tale_complete', 'tale_abandon')
+          GROUP BY name`, args),
+      pool.query(
+        `SELECT ROUND(AVG((params->>'duration_ms')::numeric))::int AS avg_duration_ms,
+                MAX((params->>'total_pages')::int) AS total_pages
+           FROM analytics_events
+          WHERE received_at >= $1${pf} AND name = 'tale_complete' AND params->>'tale_id' = $2`, args),
+      pool.query(
+        `SELECT (params->>'page_index')::int AS page, COUNT(DISTINCT session)::int AS sessions
+           FROM analytics_events
+          WHERE received_at >= $1${pf} AND name = 'tale_page_view'
+            AND params->>'tale_id' = $2 AND params ? 'page_index'
+          GROUP BY 1 ORDER BY 1`, args),
+      pool.query(
+        `SELECT (params->>'page_index')::int AS page, COUNT(*)::int AS exits
+           FROM analytics_events
+          WHERE received_at >= $1${pf} AND name = 'tale_abandon'
+            AND params->>'tale_id' = $2 AND params ? 'page_index'
+          GROUP BY 1 ORDER BY 1`, args),
+      pool.query(
+        `WITH pv AS (
+           SELECT session, (params->>'page_index')::int AS page, client_ts,
+                  LEAD(client_ts) OVER (PARTITION BY session ORDER BY client_ts) AS next_ts
+             FROM analytics_events
+            WHERE received_at >= $1${pf} AND name = 'tale_page_view'
+              AND params->>'tale_id' = $2 AND params ? 'page_index'
+         )
+         SELECT page,
+                ROUND(AVG(EXTRACT(EPOCH FROM (next_ts - client_ts)) * 1000))::int AS avg_dwell_ms,
+                COUNT(*)::int AS samples
+           FROM pv
+          WHERE next_ts IS NOT NULL AND next_ts > client_ts
+            AND next_ts - client_ts < interval '10 minutes'
+          GROUP BY page ORDER BY page`, args),
+    ]);
+
+    const cn = {};
+    byName.rows.forEach((r) => { cn[r.name] = r; });
+    res.json({
+      taleId,
+      since,
+      platform,
+      totals: {
+        opens: cn['tale_open'] ? cn['tale_open'].sessions : 0,
+        completions: cn['tale_complete'] ? cn['tale_complete'].count : 0,
+        abandons: cn['tale_abandon'] ? cn['tale_abandon'].count : 0,
+        completionRate: (cn['tale_open'] && cn['tale_open'].sessions > 0)
+          ? Math.round((cn['tale_complete'] ? cn['tale_complete'].count : 0) / cn['tale_open'].sessions * 100)
+          : null,
+        avgDurationMs: comp.rows[0].avg_duration_ms || null,
+        totalPages: comp.rows[0].total_pages || null,
+      },
+      pageReach: reach.rows,
+      exits: exits.rows,
+      dwell: dwell.rows,
+    });
+  } catch (e) {
+    console.error(`[ANALYTICS] tale insights error: ${e.message}`);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/analytics/dashboard — human-readable view of the mirror ("что к чему").
 // The HTML shell is public (contains no data); it asks for the admin key once,
 // keeps it in localStorage, and calls /summary and /events with X-Admin-Key.
