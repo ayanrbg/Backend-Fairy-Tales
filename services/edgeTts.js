@@ -10,6 +10,16 @@ const VOICES = {
 
 const DEFAULT_GENDER = 'male';
 
+// Prosody tuning to make narration sound calmer / less robotic (storytelling tone).
+// rate: percent (negative = slower), pitch: Hz (negative = lower/softer), volume: percent.
+// Override on prod without code changes via env: TTS_RATE, TTS_PITCH, TTS_VOLUME.
+const num = (v, fallback) => (v === undefined || v === '' || isNaN(Number(v)) ? fallback : Number(v));
+const PROSODY = {
+  rate: num(process.env.TTS_RATE, -8),   // ~8% slower — softer, less "newsreader"
+  pitch: num(process.env.TTS_PITCH, -2), // slightly lower — warmer
+  volume: num(process.env.TTS_VOLUME, 0),
+};
+
 /**
  * Generate speech from text using Edge TTS (free).
  * @param {string} text - Text to synthesize
@@ -26,7 +36,11 @@ async function textToSpeech(text, lang, gender) {
   const voice = voiceMap[g];
 
   const tts = new EdgeTTS();
-  await tts.synthesize(text, voice);
+  await tts.synthesize(text, voice, {
+    rate: PROSODY.rate,
+    pitch: PROSODY.pitch,
+    volume: PROSODY.volume,
+  });
   return tts.toBuffer();
 }
 
