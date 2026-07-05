@@ -150,6 +150,99 @@ router.get('/summary', adminKey, async (req, res) => {
   }
 });
 
+// GET /api/analytics/insights?since= — aggregated view for the admin dashboard.
+// All aggregation is server-side SQL so numbers stay accurate regardless of row
+// caps, pulling values out of the JSONB `params` (revenue/trials/products from
+// purchase_success, source from paywall/purchase, tale_id/duration from
+// tale_complete). Powers the charts on the promo admin site's Analytics tab.
+router.get('/insights', adminKey, async (req, res) => {
+  try {
+    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [counts, purch, totals, daily, sources, platforms, tales] = await Promise.all([
+      pool.query(
+        `SELECT name, COUNT(*)::int AS count, MAX(received_at) AS last_seen
+           FROM analytics_events WHERE received_at >= $1 GROUP BY name ORDER BY count DESC`, [since]),
+      pool.query(
+        `SELECT params->>'product_id' AS product_id,
+                COALESCE(params->>'currency', '?') AS currency,
+                COUNT(*)::int AS count,
+                COALESCE(SUM((params->>'price')::numeric), 0) AS revenue,
+                COUNT(*) FILTER (WHERE (params->>'is_trial')::boolean)::int AS trials
+           FROM analytics_events
+          WHERE received_at >= $1 AND name = 'purchase_success'
+          GROUP BY 1, 2 ORDER BY count DESC`, [since]),
+      pool.query(
+        `SELECT COUNT(DISTINCT session)::int AS sessions, COUNT(*)::int AS events
+           FROM analytics_events WHERE received_at >= $1`, [since]),
+      pool.query(
+        `SELECT to_char(date_trunc('day', received_at), 'YYYY-MM-DD') AS date,
+                COUNT(*) FILTER (WHERE name = 'paywall_view')::int     AS paywall_view,
+                COUNT(*) FILTER (WHERE name = 'purchase_start')::int   AS purchase_start,
+                COUNT(*) FILTER (WHERE name = 'purchase_success')::int AS purchase_success,
+                COUNT(*) FILTER (WHERE name = 'tale_complete')::int    AS tale_complete
+           FROM analytics_events WHERE received_at >= $1
+          GROUP BY 1 ORDER BY 1`, [since]),
+      pool.query(
+        `SELECT params->>'source' AS source, COUNT(*)::int AS count
+           FROM analytics_events
+          WHERE received_at >= $1 AND name IN ('paywall_view', 'purchase_start') AND params ? 'source'
+          GROUP BY 1 ORDER BY 2 DESC`, [since]),
+      pool.query(
+        `SELECT COALESCE(platform, '?') AS platform, COUNT(*)::int AS count
+           FROM analytics_events WHERE received_at >= $1 GROUP BY 1 ORDER BY 2 DESC`, [since]),
+      pool.query(
+        `SELECT params->>'tale_id' AS tale_id, COUNT(*)::int AS completions,
+                ROUND(AVG((params->>'duration_ms')::numeric))::int AS avg_duration_ms
+           FROM analytics_events
+          WHERE received_at >= $1 AND name = 'tale_complete' AND params ? 'tale_id'
+          GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [since]),
+    ]);
+
+    const countByName = {};
+    counts.rows.forEach((r) => { countByName[r.name] = r.count; });
+    const revenue = {};
+    let trials = 0, purchases = 0;
+    purch.rows.forEach((r) => {
+      revenue[r.currency] = (revenue[r.currency] || 0) + Number(r.revenue);
+      trials += r.trials;
+      purchases += r.count;
+    });
+
+    res.json({
+      since,
+      totals: {
+        events: totals.rows[0].events,
+        sessions: totals.rows[0].sessions,
+        purchases,
+        trials,
+        completions: countByName['tale_complete'] || 0,
+        revenue,
+      },
+      funnel: {
+        paywall_view: countByName['paywall_view'] || 0,
+        purchase_start: countByName['purchase_start'] || 0,
+        purchase_success: countByName['purchase_success'] || 0,
+        paywall_dismiss: countByName['paywall_dismiss'] || 0,
+        purchase_error: countByName['purchase_error'] || 0,
+        purchase_restore: countByName['purchase_restore'] || 0,
+        promo_redeem: countByName['promo_redeem'] || 0,
+      },
+      counts: counts.rows,
+      daily: daily.rows,
+      sources: sources.rows,
+      platforms: platforms.rows,
+      products: purch.rows.map((r) => ({
+        product_id: r.product_id, currency: r.currency,
+        count: r.count, revenue: Number(r.revenue), trials: r.trials,
+      })),
+      topTales: tales.rows,
+    });
+  } catch (e) {
+    console.error(`[ANALYTICS] insights error: ${e.message}`);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/analytics/dashboard — human-readable view of the mirror ("что к чему").
 // The HTML shell is public (contains no data); it asks for the admin key once,
 // keeps it in localStorage, and calls /summary and /events with X-Admin-Key.

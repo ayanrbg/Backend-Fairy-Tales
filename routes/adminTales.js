@@ -310,6 +310,16 @@ router.post('/:id/scenario', scenarioUpload.single('file'), async (req, res) => 
 
 // ─────────────────────── content: cover & illustrations ────────────────────
 
+// GET /api/admin/tales/:id/cover — serve the cover image (admin thumbnails on
+// the analytics/catalog UI; user-facing serving stays on /api/tales/:id/cover).
+router.get('/:id/cover', (req, res) => {
+  const { id } = req.params;
+  if (!isSafeId(id)) return res.status(400).json({ error: 'invalid id' });
+  const file = IMG_EXTS.map((e) => path.join(COVERS_DIR, id + e)).find((f) => fs.existsSync(f));
+  if (!file) return res.status(404).json({ error: 'no_cover' });
+  res.sendFile(file);
+});
+
 // POST /api/admin/tales/:id/cover  (multipart field "file") — upload/replace cover.
 router.post('/:id/cover', imageUpload.single('file'), async (req, res) => {
   const { id } = req.params;
