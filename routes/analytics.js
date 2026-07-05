@@ -104,17 +104,19 @@ router.post('/event', optionalAuth, async (req, res) => {
   return res.json({});
 });
 
-// GET /api/analytics/events?name=&userId=&session=&since=&limit= — reader (admin).
+// GET /api/analytics/events?name=&userId=&session=&since=&platform=&limit= — reader (admin).
+// platform=editor isolates Unity-Editor test events from real ios/android traffic.
 router.get('/events', adminKey, async (req, res) => {
   try {
-    const { name, userId, session, since } = req.query;
+    const { name, userId, session, since, platform } = req.query;
     const limit = Math.min(parseInt(req.query.limit, 10) || 200, 1000);
     const where = [];
     const params = [];
-    if (name)    { params.push(name);    where.push(`name = $${params.length}`); }
-    if (userId)  { params.push(userId);  where.push(`user_id = $${params.length}`); }
-    if (session) { params.push(session); where.push(`session = $${params.length}`); }
-    if (since)   { params.push(new Date(since)); where.push(`received_at >= $${params.length}`); }
+    if (name)     { params.push(name);     where.push(`name = $${params.length}`); }
+    if (userId)   { params.push(userId);   where.push(`user_id = $${params.length}`); }
+    if (session)  { params.push(session);  where.push(`session = $${params.length}`); }
+    if (platform) { params.push(platform); where.push(`platform = $${params.length}`); }
+    if (since)    { params.push(new Date(since)); where.push(`received_at >= $${params.length}`); }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     params.push(limit);
     const { rows } = await pool.query(
@@ -158,10 +160,15 @@ router.get('/summary', adminKey, async (req, res) => {
 router.get('/insights', adminKey, async (req, res) => {
   try {
     const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Optional platform filter (e.g. platform=editor to see only Unity-Editor
+    // test traffic). When present it's bound as $2 and appended to every WHERE.
+    const platform = req.query.platform || null;
+    const pf = platform ? ' AND platform = $2' : '';
+    const args = platform ? [since, platform] : [since];
     const [counts, purch, totals, daily, sources, platforms, tales] = await Promise.all([
       pool.query(
         `SELECT name, COUNT(*)::int AS count, MAX(received_at) AS last_seen
-           FROM analytics_events WHERE received_at >= $1 GROUP BY name ORDER BY count DESC`, [since]),
+           FROM analytics_events WHERE received_at >= $1${pf} GROUP BY name ORDER BY count DESC`, args),
       pool.query(
         `SELECT params->>'product_id' AS product_id,
                 COALESCE(params->>'currency', '?') AS currency,
@@ -169,33 +176,33 @@ router.get('/insights', adminKey, async (req, res) => {
                 COALESCE(SUM((params->>'price')::numeric), 0) AS revenue,
                 COUNT(*) FILTER (WHERE (params->>'is_trial')::boolean)::int AS trials
            FROM analytics_events
-          WHERE received_at >= $1 AND name = 'purchase_success'
-          GROUP BY 1, 2 ORDER BY count DESC`, [since]),
+          WHERE received_at >= $1${pf} AND name = 'purchase_success'
+          GROUP BY 1, 2 ORDER BY count DESC`, args),
       pool.query(
         `SELECT COUNT(DISTINCT session)::int AS sessions, COUNT(*)::int AS events
-           FROM analytics_events WHERE received_at >= $1`, [since]),
+           FROM analytics_events WHERE received_at >= $1${pf}`, args),
       pool.query(
         `SELECT to_char(date_trunc('day', received_at), 'YYYY-MM-DD') AS date,
                 COUNT(*) FILTER (WHERE name = 'paywall_view')::int     AS paywall_view,
                 COUNT(*) FILTER (WHERE name = 'purchase_start')::int   AS purchase_start,
                 COUNT(*) FILTER (WHERE name = 'purchase_success')::int AS purchase_success,
                 COUNT(*) FILTER (WHERE name = 'tale_complete')::int    AS tale_complete
-           FROM analytics_events WHERE received_at >= $1
-          GROUP BY 1 ORDER BY 1`, [since]),
+           FROM analytics_events WHERE received_at >= $1${pf}
+          GROUP BY 1 ORDER BY 1`, args),
       pool.query(
         `SELECT params->>'source' AS source, COUNT(*)::int AS count
            FROM analytics_events
-          WHERE received_at >= $1 AND name IN ('paywall_view', 'purchase_start') AND params ? 'source'
-          GROUP BY 1 ORDER BY 2 DESC`, [since]),
+          WHERE received_at >= $1${pf} AND name IN ('paywall_view', 'purchase_start') AND params ? 'source'
+          GROUP BY 1 ORDER BY 2 DESC`, args),
       pool.query(
         `SELECT COALESCE(platform, '?') AS platform, COUNT(*)::int AS count
-           FROM analytics_events WHERE received_at >= $1 GROUP BY 1 ORDER BY 2 DESC`, [since]),
+           FROM analytics_events WHERE received_at >= $1${pf} GROUP BY 1 ORDER BY 2 DESC`, args),
       pool.query(
         `SELECT params->>'tale_id' AS tale_id, COUNT(*)::int AS completions,
                 ROUND(AVG((params->>'duration_ms')::numeric))::int AS avg_duration_ms
            FROM analytics_events
-          WHERE received_at >= $1 AND name = 'tale_complete' AND params ? 'tale_id'
-          GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [since]),
+          WHERE received_at >= $1${pf} AND name = 'tale_complete' AND params ? 'tale_id'
+          GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, args),
     ]);
 
     const countByName = {};
