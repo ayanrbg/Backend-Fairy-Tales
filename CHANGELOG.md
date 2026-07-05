@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-04 — Firebase-аналитика (Фаза 3): backend-копия + спеки
+
+- **`POST /api/analytics/event`** (`routes/analytics.js`) — своя копия клиентских GA4-событий
+  (§3C), fire-and-forget без auth, приём батчей (до 50). Читатели под `X-Admin-Key`:
+  `GET /api/analytics/events` (сырые), `GET /api/analytics/summary` (счётчики по имени).
+- Миграция **`008-analytics`** — таблица `analytics_events`; ретеншн 30д в `cleanupOldRows`.
+- **`ANALYTICS_SPEC.md`** — таксономия событий/параметров/user-properties + детский комплаенс
+  (ТЗ для Unity). **`FIREBASE_SETUP.md`** — пошаговая настройка консоли (apps, BigQuery, DebugView).
+- Клиентская часть (Firebase Unity SDK + инструментирование) — отдельный тикет клиенту.
+
 ## 2026-07-04 — Admin control, observability, admin-site catalog management
 
 Крупная сессия: сервер стал единым источником правды по подпискам и каталогу,

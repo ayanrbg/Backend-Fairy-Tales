@@ -78,8 +78,10 @@ async function cleanupOldRows() {
   try {
     const d = await pool.query("DELETE FROM debug_logs WHERE received_at < now() - interval '14 days'");
     const s = await pool.query("DELETE FROM subscription_snapshots WHERE received_at < now() - interval '30 days'");
-    if (d.rowCount || s.rowCount) {
-      console.log(`[CLEANUP] removed ${d.rowCount} debug_logs, ${s.rowCount} snapshots`);
+    // analytics_events is only our verification copy; BigQuery is the warehouse.
+    const a = await pool.query("DELETE FROM analytics_events WHERE received_at < now() - interval '30 days'");
+    if (d.rowCount || s.rowCount || a.rowCount) {
+      console.log(`[CLEANUP] removed ${d.rowCount} debug_logs, ${s.rowCount} snapshots, ${a.rowCount} analytics_events`);
     }
   } catch (e) {
     console.error(`[CLEANUP] failed: ${e.message}`);
