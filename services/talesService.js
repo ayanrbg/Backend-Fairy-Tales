@@ -2,8 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../db');
 
-// Tales bundled into the Unity client — illustrations are shipped with the app
-const BUNDLED_TALES = new Set(['golden_egg', 'farhad']);
+// Tales bundled into the Unity client — illustrations are shipped with the app.
+// MUST match the client's StreamingAssets/BundledTales/manifest.json exactly
+// (currently just golden_egg). Adding a tale here that the client does NOT bundle
+// makes the API skip its downloadSize, so the client hides the download size.
+const BUNDLED_TALES = new Set(['golden_egg']);
 
 const ILLUSTRATIONS_DIR = path.join(__dirname, '..', 'data', 'illustrations');
 const COMING_SOON_FILE = path.join(__dirname, '..', 'data', 'coming-soon.json');
