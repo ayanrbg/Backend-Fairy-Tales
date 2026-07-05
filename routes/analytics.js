@@ -11,6 +11,40 @@ const router = express.Router();
 const MAX_BATCH = 50;
 const MAX_NAME_LEN = 64;
 
+// The mirror whitelist (SERVER_ANALYTICS_MIRROR_HANDOFF §"вайтлист"). We still
+// accept anything the client sends — but knowing the canonical set lets us flag
+// typos/unexpected names in the log and dashboard, which is exactly what makes a
+// bad build obvious. Descriptions are shown in the dashboard glossary ("что к чему").
+const MIRROR_EVENTS = {
+  paywall_view:     { ru: 'Показан пейволл',              params: 'source' },
+  paywall_dismiss:  { ru: 'Пейволл закрыт без покупки',   params: 'source' },
+  purchase_start:   { ru: 'Нажата кнопка покупки',        params: 'product_id, source' },
+  purchase_success: { ru: 'Покупка подтверждена',         params: 'product_id, price, currency, is_trial' },
+  purchase_error:   { ru: 'Ошибка/отмена покупки',        params: 'product_id, error_code, error_message?' },
+  purchase_restore: { ru: 'Восстановление покупок',       params: 'restored' },
+  promo_redeem:     { ru: 'Активирован промокод',          params: 'success' },
+  tale_complete:    { ru: 'Сказка дочитана до конца',      params: 'tale_id, total_pages, duration_ms' },
+};
+const KNOWN_NAMES = new Set(Object.keys(MIRROR_EVENTS));
+
+// One readable line per received batch so a real device build is debuggable
+// without SSH-tailing raw SQL. Set ANALYTICS_LOG=0 to silence. Shows who sent
+// it, how many events, per-name counts, and marks unknown names with `?` so a
+// client-side typo (e.g. "purchse_success") jumps out immediately.
+function logIngest(req, b, events, userIdSource) {
+  if (process.env.ANALYTICS_LOG === '0') return;
+  const counts = {};
+  for (const e of events) counts[e.name] = (counts[e.name] || 0) + 1;
+  const parts = Object.entries(counts)
+    .map(([n, c]) => `${KNOWN_NAMES.has(n) ? '' : '?'}${n}×${c}`);
+  const dropped = (Array.isArray(b.events) ? b.events.length : 1) - events.length;
+  console.log(
+    `[ANALYTICS] ingest session=${b.session || '-'} platform=${b.platform || '-'} ` +
+    `v${b.appVersion || '-'} user=${userIdSource} events=${events.length}` +
+    `${dropped > 0 ? ` dropped=${dropped}` : ''} [${parts.join(', ') || 'none'}]`
+  );
+}
+
 // Accept both a single event and a batch. Shape:
 //   { session, platform, appVersion, events: [ { name, ts, params } ] }
 //   or a single { name|ev, ts, params, session, platform, appVersion }
@@ -41,6 +75,10 @@ router.post('/event', optionalAuth, async (req, res) => {
     const b = req.body || {};
     const userId = req.userId || b.userId || null;
     const events = normalizeEvents(b);
+    // How we resolved userId — surfacing this is key when "app_open before login"
+    // events arrive anonymously and you're wondering why user is empty.
+    const userSrc = req.userId ? `jwt(${req.userId})` : (b.userId ? `body(${b.userId})` : 'anon');
+    logIngest(req, b, events, userSrc);
     if (events.length) {
       // Single multi-row INSERT.
       const values = [];
@@ -112,4 +150,217 @@ router.get('/summary', adminKey, async (req, res) => {
   }
 });
 
+// GET /api/analytics/dashboard — human-readable view of the mirror ("что к чему").
+// The HTML shell is public (contains no data); it asks for the admin key once,
+// keeps it in localStorage, and calls /summary and /events with X-Admin-Key.
+// This is the "site with clear logs" for verifying a build end-to-end.
+router.get('/dashboard', (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8').send(dashboardHtml());
+});
+
+function dashboardHtml() {
+  const glossary = Object.entries(MIRROR_EVENTS)
+    .map(([n, m]) => `<tr><td><code>${n}</code></td><td>${m.ru}</td><td><code>${m.params}</code></td></tr>`)
+    .join('');
+  const knownJson = JSON.stringify(Object.keys(MIRROR_EVENTS));
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аналитика — зеркало событий</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --dim:#94a3b8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --accent:#3b82f6; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--txt); }
+  header { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0 12px 0 0; }
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+  input, select, button { font: inherit; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--line); background: #0b1220; color: var(--txt); }
+  button { background: var(--accent); border-color: var(--accent); cursor: pointer; }
+  button.ghost { background: transparent; }
+  label { font-size: 13px; color: var(--dim); margin-right: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; }
+  code { background: #0b1220; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .funnel { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .step { flex: 1; min-width: 130px; background: #0b1220; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .step .n { font-size: 26px; font-weight: 700; }
+  .step .l { font-size: 12px; color: var(--dim); }
+  .step .pct { font-size: 12px; color: var(--ok); }
+  .arrow { align-self: center; color: var(--dim); font-size: 20px; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
+  .pill.unknown { background: var(--bad); color: #fff; }
+  .pill.known { background: #0b1220; color: var(--dim); }
+  .muted { color: var(--dim); }
+  .status { font-size: 13px; }
+  .status.err { color: var(--bad); }
+  pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: #cbd5e1; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Зеркало аналитики</h1>
+  <label>Admin key</label><input id="key" type="password" size="20" placeholder="X-Admin-Key">
+  <label>Период</label>
+  <select id="range">
+    <option value="1">1 час</option>
+    <option value="24" selected>24 часа</option>
+    <option value="168">7 дней</option>
+    <option value="720">30 дней</option>
+  </select>
+  <button id="load">Загрузить</button>
+  <label><input type="checkbox" id="auto"> авто-обновление 10с</label>
+  <span id="status" class="status muted"></span>
+</header>
+<main>
+  <div class="card">
+    <h2>Воронка монетизации</h2>
+    <div id="funnelMoney" class="funnel muted">— загрузите данные —</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Счётчики по событиям</h2>
+      <table><thead><tr><th>Событие</th><th>Кол-во</th><th>Последнее</th></tr></thead>
+      <tbody id="summary"><tr><td class="muted" colspan="3">—</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Дочитывания сказок</h2>
+      <div id="reading" class="muted">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Живой поток событий (что реально прислал клиент)</h2>
+    <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap;">
+      <input id="fName" placeholder="фильтр: name (напр. purchase_success)" size="24">
+      <input id="fSession" placeholder="session" size="16">
+      <input id="fUser" placeholder="userId" size="16">
+      <button class="ghost" id="applyFilters">Фильтр</button>
+    </div>
+    <table><thead><tr><th>Получено</th><th>Событие</th><th>Платформа/верс.</th><th>User / session</th><th>params</th></tr></thead>
+    <tbody id="events"><tr><td class="muted" colspan="5">—</td></tr></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Легенда: какие события шлёт клиент в зеркало</h2>
+    <p class="muted" style="font-size:13px;margin-top:0">
+      Только эти 8 имён идут в наш backend. Всё остальное (tale_open, tale_page_view, narration_* …) —
+      только в Firebase GA4. Имя <span class="pill unknown">красным</span> в потоке = незнакомое (возможно опечатка в билде).
+    </p>
+    <table><thead><tr><th>Событие</th><th>Смысл</th><th>Параметры</th></tr></thead>
+    <tbody>${glossary}</tbody></table>
+  </div>
+</main>
+<script>
+const KNOWN = new Set(${knownJson});
+const $ = (id) => document.getElementById(id);
+const key = $('key');
+key.value = localStorage.getItem('adminKey') || '';
+key.addEventListener('change', () => localStorage.setItem('adminKey', key.value.trim()));
+
+function sinceIso() {
+  const h = parseInt($('range').value, 10);
+  return new Date(Date.now() - h * 3600 * 1000).toISOString();
+}
+async function api(path) {
+  const r = await fetch(path, { headers: { 'X-Admin-Key': key.value.trim() } });
+  if (r.status === 401) throw new Error('Неверный admin key (401)');
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function fmtTime(t) {
+  if (!t) return '—';
+  const d = new Date(t);
+  return d.toLocaleString('ru-RU', { hour12: false }).replace(',', '');
+}
+function setStatus(msg, err) {
+  const s = $('status'); s.textContent = msg; s.className = 'status ' + (err ? 'err' : 'muted');
+}
+
+function renderSummary(events) {
+  const map = {}; events.forEach(e => map[e.name] = e);
+  $('summary').innerHTML = events.length
+    ? events.map(e => \`<tr><td>\${KNOWN.has(e.name) ? '' : '<span class="pill unknown">?</span> '}<code>\${e.name}</code></td><td>\${e.count}</td><td class="muted">\${fmtTime(e.last_seen)}</td></tr>\`).join('')
+    : '<tr><td class="muted" colspan="3">Пусто за период</td></tr>';
+  // Reading
+  const tc = map['tale_complete'];
+  $('reading').innerHTML = tc
+    ? \`<div class="step"><div class="n">\${tc.count}</div><div class="l">tale_complete — сказок дочитано до конца</div><div class="muted" style="margin-top:6px">последнее: \${fmtTime(tc.last_seen)}</div></div>\`
+    : '<span class="muted">Ещё нет событий tale_complete за период.</span>';
+  // Money funnel
+  const n = (name) => (map[name] ? map[name].count : 0);
+  const view = n('paywall_view'), start = n('purchase_start'), ok = n('purchase_success');
+  const err = n('purchase_error'), rest = n('purchase_restore');
+  const pct = (a, b) => (b > 0 ? Math.round(a / b * 100) + '%' : '—');
+  $('funnelMoney').className = 'funnel';
+  $('funnelMoney').innerHTML =
+    step(view, 'paywall_view', '') +
+    '<div class="arrow">→</div>' + step(start, 'purchase_start', pct(start, view) + ' от показов') +
+    '<div class="arrow">→</div>' + step(ok, 'purchase_success', pct(ok, start) + ' от нажатий') +
+    '<div class="arrow">·</div>' + step(err, 'purchase_error', 'ошибки/отмены', true) +
+    step(rest, 'purchase_restore', 'восстановления', true);
+}
+function step(num, label, sub, dim) {
+  return \`<div class="step"><div class="n" style="\${dim ? 'color:var(--dim)' : ''}">\${num}</div><div class="l">\${label}</div><div class="pct">\${sub}</div></div>\`;
+}
+
+function renderEvents(rows) {
+  $('events').innerHTML = rows.length
+    ? rows.map(e => {
+        const unknown = !KNOWN.has(e.name);
+        const params = e.params ? JSON.stringify(e.params, null, 0) : '—';
+        return \`<tr>
+          <td class="muted">\${fmtTime(e.received_at)}<br><span style="font-size:11px">client: \${fmtTime(e.client_ts)}</span></td>
+          <td>\${unknown ? '<span class="pill unknown">?</span> ' : ''}<code>\${e.name}</code></td>
+          <td>\${e.platform || '—'}<br><span class="muted">v\${e.app_version || '?'}</span></td>
+          <td><span class="muted">\${e.user_id || 'anon'}</span><br><code>\${e.session || '—'}</code></td>
+          <td><pre>\${params}</pre></td>
+        </tr>\`;
+      }).join('')
+    : '<tr><td class="muted" colspan="5">Нет событий по фильтру за период.</td></tr>';
+}
+
+async function load() {
+  if (!key.value.trim()) { setStatus('Введите admin key', true); return; }
+  setStatus('Загрузка…');
+  try {
+    const since = encodeURIComponent(sinceIso());
+    const [sum, ev] = await Promise.all([
+      api('/api/analytics/summary?since=' + since),
+      api('/api/analytics/events?limit=200&since=' + since +
+          ($('fName').value.trim() ? '&name=' + encodeURIComponent($('fName').value.trim()) : '') +
+          ($('fSession').value.trim() ? '&session=' + encodeURIComponent($('fSession').value.trim()) : '') +
+          ($('fUser').value.trim() ? '&userId=' + encodeURIComponent($('fUser').value.trim()) : '')),
+    ]);
+    renderSummary(sum.events || []);
+    renderEvents(ev || []);
+    const total = (sum.events || []).reduce((a, e) => a + e.count, 0);
+    setStatus('Обновлено ' + new Date().toLocaleTimeString('ru-RU', { hour12: false }) + ' · ' + total + ' событий за период');
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
+$('load').onclick = load;
+$('applyFilters').onclick = load;
+$('range').onchange = load;
+let timer = null;
+$('auto').onchange = (e) => {
+  clearInterval(timer);
+  if (e.target.checked) { timer = setInterval(load, 10000); load(); }
+};
+if (key.value.trim()) load();
+</script>
+</body>
+</html>`;
+}
+
 module.exports = router;
+module.exports.MIRROR_EVENTS = MIRROR_EVENTS;
