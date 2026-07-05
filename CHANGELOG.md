@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-05 — Фаза 3 задеплоена в прод + Firebase-консоль + TTS
+
+- **Аналитика выкачена в прод:** миграция `008-analytics` прогнана на прод-БД (таблица
+  `analytics_events` + индексы); код `routes/analytics.js` задеплоен (`git pull` + `pm2 restart`).
+  Smoke-test на проде прошёл — `POST /api/analytics/event` принимает батч, строки с `params`
+  ложатся в БД.
+- **Firebase-консоль настроена** (проект `bala-stories-afb46`, GA4): зарегистрированы iOS
+  `com.mozz.fairyTales` / Android `com.tokengc.balastories`, включён BigQuery-экспорт
+  (Daily, регион `us`, advertising identifiers off). Детский режим: Google-сигналы off,
+  персонализация рекламы 0/307, consent OK, хранение данных 14 мес.
+- **`CLIENT_TICKET_ANALYTICS.md`** — тикет для Unity-разработчика (SDK, детский режим,
+  user-properties, инструментирование по `ANALYTICS_SPEC.md`, критерии приёмки).
+- **TTS:** мягче для сказок — `edgeTts` применяет prosody (rate −8%, pitch −2Hz; override
+  через env `TTS_RATE`/`TTS_PITCH`/`TTS_VOLUME`). Добавлен `scripts/tts-playground.js` (:5055).
+- Осталось (клиент): Unity SDK + инструментирование; через ~24 ч проверить датасет
+  `analytics_*` в BigQuery; QA событий в DebugView.
+
 ## 2026-07-04 — Firebase-аналитика (Фаза 3): backend-копия + спеки
 
 - **`POST /api/analytics/event`** (`routes/analytics.js`) — своя копия клиентских GA4-событий
