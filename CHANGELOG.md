@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-05 — Аналитика: экран по сказке + платформенный фильтр + миниатюры
+
+- **Per-tale deep dive** — `GET /api/analytics/tale/:id?since=&platform=`: кривая удержания по
+  страницам, распределение выходов (`tale_abandon`), среднее время на странице (LEAD по
+  `tale_page_view` в сессии). На промо-админке — клик по сказке открывает модалку с обложкой,
+  KPI и графиками. Требует, чтобы клиент слал `tale_open`/`tale_page_view`/`tale_abandon` в зеркало
+  (обновлён `CLIENT_TICKET_ANALYTICS.md §5`).
+- **Платформенный фильтр** — `?platform=` в `/events` и `/insights`; на вкладке селектор
+  (🧪 editor / iOS / Android) — изолирует тестовые прогоны из Unity Editor от боевых.
+- **Миниатюры сказок** — `scripts/gen-tale-thumbs.js` кладёт уменьшенную первую иллюстрацию
+  (`page_0`) в `/var/www/bala-stories/client/tale-thumbs`, отдаётся статикой (без запроса к API).
+- `GET /api/admin/tales/:id/cover` — отдача обложки для админ-превью.
+
 ## 2026-07-05 — Аналитика: дашборд, подробные логи приёма, smoke-test
 
 - **Дашборд зеркала** — `GET /api/analytics/dashboard` (HTML, admin-key в localStorage):
