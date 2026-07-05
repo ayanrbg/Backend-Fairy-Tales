@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-05 — Зеркало полного лога + kill-switch (SERVER_LOG_MIRROR_SPEC)
+
+- **`POST /api/debug/logs`** — приём батча строк лога Unity из живого билда
+  (`level/message/stack`), bulk-insert в новую таблицу `debug_log_lines`.
+  Fire-and-forget, всегда `200`; в ответ пиггибекается текущая политика (§3),
+  чтобы `enabled:false` дошёл до клиентов без ожидания следующего старта.
+- **`GET /api/debug/config?userId=`** — глушилка: `enabled`, `level` (`all|warn`),
+  `flushSec`, `batchMax`. `hasConfig:true` обязателен. Разрешение политики:
+  строка по userId → глобальная `'*'` → встроенный дефолт (ON, `all`).
+- **Админ-управление** — `GET/PUT/DELETE /api/admin/debug/log-config`: выключить
+  логи у всех без обновления клиента (`PUT { enabled:false }`), либо точечное
+  переопределение по `userId`.
+- **`GET /api/debug/logs`** (admin) — читалка флоу покупки сверху вниз
+  (старые→новые), фильтры `userId/session/level`.
+- Миграция `db/migrate-009-log-mirror.sql` (`debug_log_lines`, `debug_log_config`),
+  ретеншн 30 дней в `diagnostics.cleanupOldRows`. Таблица отдельна от `debug_logs`
+  (та — структурные IAP-события `ev/data`; здесь — сырые строки лога).
+
 ## 2026-07-05 — Аналитика: экран по сказке + платформенный фильтр + миниатюры
 
 - **Per-tale deep dive** — `GET /api/analytics/tale/:id?since=&platform=`: кривая удержания по

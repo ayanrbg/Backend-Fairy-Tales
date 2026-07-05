@@ -1289,6 +1289,61 @@ X-Admin-Key: <ADMIN_KEY>
 
 ---
 
+### Зеркало полного лога — `POST /api/debug/logs`
+
+Батч строк лога Unity из живого билда (SERVER_LOG_MIRROR_SPEC §1). Fire-and-forget,
+без обязательной авторизации; при наличии валидного JWT его `userId` важнее тела.
+Всегда `200`. В ответ пиггибекается текущая политика логирования (§3).
+
+```
+POST /api/debug/logs
+Content-Type: application/json
+
+{
+  "userId": "abc123",
+  "session": "9f3c1a2b",
+  "platform": "IPhonePlayer",
+  "appVersion": "1.4.0",
+  "lines": [
+    { "ts": "2026-07-05T10:11:12.345Z", "level": "Log",   "message": "[IAP-DBG] Purchase() called", "stack": "" },
+    { "ts": "2026-07-05T10:11:13.000Z", "level": "Error", "message": "[IAP-DBG] ERROR [500]", "stack": "UnityEngine..." }
+  ]
+}
+```
+Ответ: `{ "hasConfig": true, "enabled": true, "level": "all", "flushSec": 4, "batchMax": 40 }`.
+
+**Чтение строк лога (админ)** — старые→новые, чтобы читать флоу покупки сверху вниз:
+```
+GET /api/debug/logs?userId=&session=&level=&limit=500
+X-Admin-Key: <ADMIN_KEY>
+```
+
+### Kill-switch логирования — `GET /api/debug/config`
+
+Клиент дёргает на каждом старте (SERVER_LOG_MIRROR_SPEC §2). `hasConfig:true`
+обязателен, иначе клиент игнорирует ответ.
+
+```
+GET /api/debug/config?userId=<id>
+```
+```json
+{ "hasConfig": true, "enabled": true, "level": "all", "flushSec": 4, "batchMax": 40 }
+```
+- `enabled:false` — клиент перестаёт захватывать и слать логи (глушилка).
+- `level:"warn"` — только Warning/Error/Exception (без шумных `Log`).
+
+**Управление политикой (админ):** глобальная строка — `user_id='*'`, строка с
+реальным `userId` — точечное переопределение для одного тестера.
+```
+GET    /api/admin/debug/log-config                 → список строк политики
+PUT    /api/admin/debug/log-config                 → upsert { userId?, enabled?, level?, flushSec?, batchMax? }
+DELETE /api/admin/debug/log-config?userId=<id>     → снять переопределение (не глобальное)
+X-Admin-Key: <ADMIN_KEY>
+```
+Чтобы выключить логи у всех без обновления клиента: `PUT { "enabled": false }` (без `userId`).
+
+---
+
 ## A11. Диагностика сервера (debug)
 
 Обзор состояния сервера и активности IAP в одном месте — чтобы искать причину сбоя без SSH/psql. Требуют `X-Admin-Key`.
