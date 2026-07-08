@@ -14,11 +14,13 @@ const promoRoutes = require('./routes/promo');
 const appleNotificationRoutes = require('./routes/appleNotifications');
 const debugRoutes = require('./routes/debug');
 const analyticsRoutes = require('./routes/analytics');
+const pushRoutes = require('./routes/push');
 const adminSubscriptionRoutes = require('./routes/adminSubscriptions');
 const adminTalesRoutes = require('./routes/adminTales');
 const adminDebugRoutes = require('./routes/adminDebug');
 const adminAlertsRoutes = require('./routes/adminAlerts');
 const adminUsersRoutes = require('./routes/adminUsers');
+const adminPushRoutes = require('./routes/adminPush');
 const requestLog = require('./middleware/requestLog');
 const diagnostics = require('./utils/diagnostics');
 
@@ -46,11 +48,13 @@ app.use('/api/promo', promoRoutes);
 app.use('/api/apple', appleNotificationRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/push', pushRoutes);
 app.use('/api/admin/subscriptions', adminSubscriptionRoutes);
 app.use('/api/admin/tales', adminTalesRoutes);
 app.use('/api/admin/debug', adminDebugRoutes);
 app.use('/api/admin/alerts', adminAlertsRoutes);
 app.use('/api/admin/users', adminUsersRoutes);
+app.use('/api/admin/push', adminPushRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

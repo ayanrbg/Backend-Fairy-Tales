@@ -87,6 +87,36 @@ Firebase Console → нужный проект → ⚙ **Project settings** → 
 
 ---
 
+## 5bis. Cloud Messaging (FCM) — для пуш-уведомлений
+
+Нужно для подсистемы пользовательских пушей (`DEV_PLAN_PUSH_NOTIFICATIONS.md`). Тот же
+Firebase-проект — отдельного заводить не надо. Все шаги — ручные клики в консоли.
+
+### 5bis.1. APNs-ключ для iOS (обязательно, иначе iOS-пуши не уходят)
+1. Apple Developer → **Certificates, Identifiers & Profiles → Keys** → **+** → включить
+   **Apple Push Notifications service (APNs)** → скачать `.p8` (скачивается один раз!),
+   запомнить **Key ID** и **Team ID**.
+2. Firebase Console → ⚙ **Project settings → Cloud Messaging → Apple app configuration →
+   APNs Authentication Key → Upload**: залить `.p8`, указать Key ID и Team ID.
+
+### 5bis.2. Android
+- FCM работает «из коробки» после регистрации приложения (§1). Отдельных ключей не нужно
+  (legacy Server Key не используем — шлём через service-account, см. ниже).
+
+### 5bis.3. Service account для нашего бэкенда (серверный секрет)
+1. Firebase Console → ⚙ **Project settings → Service accounts → Generate new private key** →
+   скачать JSON.
+2. Положить на Fairy-сервер как секрет и прописать в `.env`:
+   `FIREBASE_SERVICE_ACCOUNT=/var/www/Backend-Fairy-Tales/secrets/fcm-service-account.json`
+   (или вставить сам JSON в переменную). **В git не коммитим.** Файл должен быть вне репозитория
+   или в `.gitignore`.
+3. Проверка: `GET /api/admin/push/tokens/stats` вернёт `{ "configured": true, ... }`.
+
+> До появления ключа подсистема пушей деплоится и принимает токены, но `configured:false`
+> и отправка отвечает `503 fcm_not_configured` — это ожидаемо.
+
+---
+
 ## 6. Дашборды (минимум — §3E)
 
 После наполнения данных собрать 3 отчёта (GA4 Explore или BigQuery):

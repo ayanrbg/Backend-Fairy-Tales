@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-07-08 — Пуш-уведомления: Фаза 1 — отправка, сегменты, кампании (DEV_PLAN_PUSH_NOTIFICATIONS)
+
+- **`services/pushSender.js`** — отправка через FCM на `firebase-admin` v13 (модульный API
+  `firebase-admin/app` + `/messaging`). Ленивая инициализация из `FIREBASE_SERVICE_ACCOUNT`
+  (путь или сырой JSON) — код деплоится без ключа, шлёт когда ключ появится. `sendEach`
+  батчами по 500, мультиязычный контент по языку получателя (фолбэк на `default`), мёртвые
+  токены (`registration-token-not-registered` и т.п.) мягко гасятся `disabled_at`.
+- **`services/pushSegments.js`** — резолвер аудитории: `premium` (paid/free через `entitlements`),
+  `langs`, `genders`, `platforms`, `appVersions`, `inactiveDays` (по `analytics_events`),
+  `taleRead` (прочитал/не прочитал сказку), либо адресный `userId`. Только активные токены.
+- **`routes/adminPush.js`** (под `X-Admin-Key`): `GET/POST/PUT /campaigns`, `/:id`,
+  `/:id/send` (атомарный claim `draft→sending`, защита от двойного клика), `/:id/cancel`,
+  `POST /preview-audience` (охват до отправки), `POST /test` (пуш себе по `userId`/`token`
+  без записи кампании), `GET /tokens/stats`. `X-Admin-Actor` пишет `created_by`.
+- Миграция `db/migrate-011-push-campaigns.sql` (`push_campaigns`, `push_deliveries` с
+  уникальным `(campaign_id, token)` против дублей). Зависимость `firebase-admin@^13`.
+- Осталось для запуска: применить миграции 010/011 на проде, подключить `FIREBASE_SERVICE_ACCOUNT`
+  + APNs-ключ (Firebase Console), доработать клиент (Unity) и вкладку «Пуши» на `bala-stories`.
+
+## 2026-07-08 — Пуш-уведомления: Фаза 0 — приём device-токенов (DEV_PLAN_PUSH_NOTIFICATIONS)
+
+- Старт новой подсистемы **пользовательских пуш-кампаний** (FCM). Это НЕ админ-алерты
+  из `admin_alerts` — это пуши конечным пользователям приложения. План —
+  `DEV_PLAN_PUSH_NOTIFICATIONS.md`, ТЗ клиенту — `CLIENT_TICKET_PUSH.md`.
+- **`POST /api/push/register`** — устройство кладёт/обновляет FCM-токен
+  (`userId/token/platform/appVersion/lang`). Идемпотентно, всегда `200`; upsert по токену,
+  `disabled_at` снимается при повторной регистрации (устройство доказало, что живо).
+- **`POST /api/push/unregister`** — мягко выключить токен (юзер отключил пуши / разлогин).
+- Миграция `db/migrate-010-push.sql` (`push_tokens`), `services/pushTokens.js`,
+  `routes/push.js`. Дебаг-логи под тегом `[PUSH]`.
+- Отправки пока НЕТ — Фаза 0 только «прокладывает трубу», чтобы к готовности клиента
+  токены уже складывались. Отправка/сегменты/панель — Фазы 1–3.
+
 ## 2026-07-05 — Зеркало полного лога + kill-switch (SERVER_LOG_MIRROR_SPEC)
 
 - **`POST /api/debug/logs`** — приём батча строк лога Unity из живого билда
