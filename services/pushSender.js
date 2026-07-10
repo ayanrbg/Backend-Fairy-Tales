@@ -68,6 +68,11 @@ function buildData(deeplink, campaignId) {
   return data;
 }
 
+// Combined notification+data message with the delivery hints the client needs
+// (CLIENT handoff §2): a named Android channel + high priority so the tray
+// banner shows and the tap routes when the app is backgrounded/killed.
+const ANDROID_CHANNEL = 'fairytales_default';
+
 function buildMessage(recipient, campaign) {
   const c = pickContent(campaign.content, recipient.lang);
   if (!c || !c.title && !c.body) return null; // nothing to say in any language
@@ -75,6 +80,8 @@ function buildMessage(recipient, campaign) {
     token: recipient.token,
     notification: { title: c.title || '', body: c.body || '' },
     data: buildData(campaign.deeplink, campaign.id),
+    android: { priority: 'high', notification: { channel_id: ANDROID_CHANNEL } },
+    apns: { headers: { 'apns-priority': '10' } },
   };
   if (c.image) msg.notification.image = c.image;
   return { message: msg, langUsed: c.lang };

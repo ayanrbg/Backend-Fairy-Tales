@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-10 — Пуши: сверка с клиентом (SERVER_PUSH_CLIENT_HANDOFF)
+
+Клиент (Unity) реализовал пуши и прислал фактический контракт. Подогнал бэкенд:
+- **`POST /api/push/opened`** — приём тапа по пушу (open-rate). Пишет `push_deliveries.opened_at`
+  (однократно) и инкрементит `push_campaigns.stats.opened`. Fire-and-forget, всегда 200;
+  нечисловой `campaignId` (тестовые пуши) игнорируется. `services/pushTokens.recordOpen`.
+- **FCM-payload** дополнен под требования клиента: `android.priority=high` +
+  `android.notification.channel_id="fairytales_default"`, `apns.headers.apns-priority=10`.
+  Шлём combined (`notification`+`data`), не data-only — иначе Android в фоне не покажет баннер.
+- **`platform="editor"`** теперь принимается (Unity-Editor дев-сборки) и **исключается из
+  обычных рассылок** (`pushSegments`: broadcast добавляет `platform IS DISTINCT FROM 'editor'`,
+  если платформа не задана явно) — тестовые токены не получают прод-пуши.
+- Ключи `data` (`type`/`taleId`/`url`/`campaignId`) подтверждены как есть.
+- Сайт: в композер добавлен 4-й язык **uz** (бэкенд и так фолбэчил на default).
+
+
 ## 2026-07-08 — Пуш-уведомления: Фаза 1 — отправка, сегменты, кампании (DEV_PLAN_PUSH_NOTIFICATIONS)
 
 - **`services/pushSender.js`** — отправка через FCM на `firebase-admin` v13 (модульный API

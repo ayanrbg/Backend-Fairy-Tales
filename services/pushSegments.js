@@ -43,6 +43,10 @@ function buildWhere(audience = {}) {
   }
   if (Array.isArray(audience.platforms) && audience.platforms.length) {
     where.push(`pt.platform = ANY(${add(audience.platforms)})`);
+  } else {
+    // Keep Unity-Editor dev tokens out of real broadcasts unless the campaign
+    // explicitly targets the 'editor' platform above.
+    where.push(`pt.platform IS DISTINCT FROM 'editor'`);
   }
   if (Array.isArray(audience.appVersions) && audience.appVersions.length) {
     where.push(`pt.app_version = ANY(${add(audience.appVersions)})`);

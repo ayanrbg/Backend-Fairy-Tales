@@ -51,4 +51,22 @@ router.post('/unregister', optionalAuth, async (req, res) => {
   }
 });
 
+// POST /api/push/opened — client reports a push tap (open-rate). Fire-and-forget:
+// always 200 so analytics never breaks the app. campaignId is numeric for real
+// campaigns; test pushes carry a non-numeric id and are simply ignored.
+router.post('/opened', optionalAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const campaignId = String(b.campaignId || '').trim();
+    const userId = req.userId || b.userId || null;
+    if (/^\d+$/.test(campaignId) && userId) {
+      const n = await tokens.recordOpen(campaignId, userId);
+      if (n) console.log(`[PUSH] opened campaign=${campaignId} user=${userId}`);
+    }
+  } catch (e) {
+    console.error(`[PUSH] opened error: ${e.message}`);
+  }
+  return res.json({ ok: true });
+});
+
 module.exports = router;

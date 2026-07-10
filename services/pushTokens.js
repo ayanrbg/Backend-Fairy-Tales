@@ -5,7 +5,10 @@ const pool = require('../db');
 // active rows. Everything here is idempotent — the client re-registers on
 // every launch and on every FCM token refresh.
 
-const PLATFORMS = new Set(['ios', 'android']);
+// 'editor' = Unity-Editor dev builds (like analytics). We store it so it can be
+// labeled and kept out of real campaigns; pushSegments excludes editor tokens
+// from broadcasts unless explicitly targeted.
+const PLATFORMS = new Set(['ios', 'android', 'editor']);
 const MAX_TOKEN_LEN = 4096; // FCM tokens are ~160 chars; cap defends the column.
 
 // upsert by token. A token can migrate between users (device handed over,
@@ -38,6 +41,27 @@ async function disableToken(token) {
   return rowCount > 0;
 }
 
+// Record a push open reported by the client (POST /api/push/opened). Marks the
+// matching delivery opened (once) and bumps the campaign's opened counter.
+// campaignId must be numeric (real campaign); test pushes carry a non-numeric id.
+async function recordOpen(campaignId, userId) {
+  const r = await pool.query(
+    `UPDATE push_deliveries SET opened_at = now()
+      WHERE campaign_id = $1::bigint AND user_id = $2 AND opened_at IS NULL`,
+    [campaignId, userId]
+  );
+  if (r.rowCount) {
+    await pool.query(
+      `UPDATE push_campaigns
+          SET stats = jsonb_set(COALESCE(stats, '{}'::jsonb), '{opened}',
+                to_jsonb(COALESCE((stats->>'opened')::int, 0) + $2))
+        WHERE id = $1::bigint`,
+      [campaignId, r.rowCount]
+    );
+  }
+  return r.rowCount;
+}
+
 // Active-token stats for the admin "token health" view (Phase 1 UI).
 async function tokenStats() {
   const { rows } = await pool.query(
@@ -50,4 +74,4 @@ async function tokenStats() {
   return rows;
 }
 
-module.exports = { registerToken, disableToken, tokenStats, PLATFORMS, MAX_TOKEN_LEN };
+module.exports = { registerToken, disableToken, recordOpen, tokenStats, PLATFORMS, MAX_TOKEN_LEN };
